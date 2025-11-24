@@ -6,20 +6,32 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 10000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Verificar que MONGODB_URI existe
+if (!process.env.MONGODB_URI) {
+  console.error('❌ ERROR: MONGODB_URI no está definida en las variables de entorno');
+  console.log('💡 Verifica que en Render tengas la variable MONGODB_URI configurada');
+  process.exit(1);
+}
+
+console.log('🔧 Configuración MongoDB:');
+console.log('   - URI presente:', !!process.env.MONGODB_URI);
+console.log('   - Puerto:', PORT);
+console.log('   - Entorno:', process.env.NODE_ENV);
 
 // Modelos de MongoDB
 const itemSchema = new mongoose.Schema({
   qrCode: { type: String, required: true, unique: true },
   name: { type: String, required: true },
   category: { type: String, required: true },
-  description: { type: String, required: true },
+  description: { type: String, default: '' },
   status: { type: String, enum: ['new', 'available', 'borrowed'], default: 'new' },
-  registeredBy: { type: String, required: true },
+  registeredBy: { type: String, default: 'Sistema' },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -35,13 +47,22 @@ const Item = mongoose.model('Item', itemSchema);
 const History = mongoose.model('History', historySchema);
 
 // Conexión a MongoDB Atlas
+console.log('🔄 Conectando a MongoDB Atlas...');
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✅ Conectado a MongoDB Atlas'))
+.then(() => {
+  console.log('✅ Conectado exitosamente a MongoDB Atlas');
+  console.log('📊 Base de datos: sig-inventario-qr');
+})
 .catch(err => {
-  console.error('❌ Error conectando a MongoDB Atlas:', err.message);
+  console.error('❌ Error conectando a MongoDB Atlas:');
+  console.error('   - Mensaje:', err.message);
+  console.error('   💡 Verifica:');
+  console.error('      1. Que MONGODB_URI sea correcta');
+  console.error('      2. Que tu IP esté en la lista de permitidas en Atlas');
+  console.error('      3. Que el usuario y contraseña sean correctos');
   process.exit(1);
 });
 
@@ -87,10 +108,10 @@ app.post('/api/scan', async (req, res) => {
 
 app.post('/api/register', async (req, res) => {
   try {
-    const { qrCode, name, category, description, registeredBy } = req.body;
+    const { qrCode, name, category, description } = req.body;
 
-    if (!qrCode || !name || !category || !description || !registeredBy) {
-      return res.status(400).json({ error: 'Todos los campos son requeridos' });
+    if (!qrCode || !name || !category) {
+      return res.status(400).json({ error: 'QR code, nombre y categoría son requeridos' });
     }
 
     const existingItem = await Item.findOne({ qrCode });
@@ -102,20 +123,20 @@ app.post('/api/register', async (req, res) => {
       qrCode,
       name,
       category,
-      description,
+      description: description || '',
       status: 'available',
-      registeredBy
+      registeredBy: 'Sistema'
     });
 
     await History.create({
       itemId: newItem._id,
       action: 'register',
-      person: registeredBy,
-      notes: `Registro inicial por ${registeredBy}`
+      person: 'Sistema',
+      notes: `Registro inicial`
     });
 
     res.json({
-      message: 'Item registrado exitosamente en MongoDB Atlas',
+      message: 'Item registrado exitosamente',
       item: newItem
     });
   } catch (error) {
@@ -217,13 +238,15 @@ app.get('/api/history/:id', async (req, res) => {
 // Ruta de prueba
 app.get('/', (req, res) => {
   res.json({ 
-    message: '🚀 SIG INVENTARIO QR API funcionando con MongoDB Atlas',
-    database: 'MongoDB Atlas (Nube)',
+    message: '🚀 SIG INVENTARIO QR API funcionando',
+    database: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado',
+    environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`🔊 Servidor corriendo en http://localhost:${PORT}`);
-  console.log(`☁️  Conectado a MongoDB Atlas`);
+  console.log(`🔊 Servidor corriendo en puerto ${PORT}`);
+  console.log(`🌐 Entorno: ${process.env.NODE_ENV}`);
+  console.log(`🗄️  Estado MongoDB: ${mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'}`);
 });
