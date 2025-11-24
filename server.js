@@ -1,24 +1,27 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const app = express();
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
 
-// ✅ CORREGIR: Usar process.env.PORT, no el string "PORT"
+dotenv.config();
+
+const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0'; // ✅ Importante para Render
+const HOST = '0.0.0.0';
 
 // Middleware
+app.use(cors());
 app.use(express.json());
 
-// Rutas básicas
+// Rutas
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Servidor funcionando',
+    message: 'Servidor funcionando correctamente',
     port: PORT,
     environment: process.env.NODE_ENV
   });
 });
 
-// Health check para Render
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'OK', 
@@ -27,7 +30,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Conexión a MongoDB (tu código actual)
+// Conexión a MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -40,9 +43,7 @@ mongoose.connect(process.env.MONGODB_URI, {
   console.error('❌ Error conectando a MongoDB:', error);
 });
 
-// ✅ CORREGIR: Vincular al host 0.0.0.0 y puerto correcto
 app.listen(PORT, HOST, () => {
   console.log(`🔊 Servidor corriendo en puerto ${PORT}`);
   console.log(`🌐 Entorno: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🗄️ Estado MongoDB: ${mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'}`);
 });
