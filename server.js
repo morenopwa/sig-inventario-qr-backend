@@ -37,7 +37,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', database: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado' });
 });
 
-// Obtener todos los equipos
+// ✅ CORREGIDO: Ruta para items (alias de equipments)
+app.get('/api/items', async (req, res) => {
+  try {
+    const items = await Equipment.find().sort({ updatedAt: -1 });
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ✅ También mantener la ruta equipments por compatibilidad
 app.get('/api/equipments', async (req, res) => {
   try {
     const equipments = await Equipment.find().sort({ updatedAt: -1 });
@@ -159,10 +169,19 @@ app.post('/api/equipments', async (req, res) => {
   try {
     const { qrCode, name, category } = req.body;
     
+    // Verificar si ya existe
+    const existing = await Equipment.findOne({ qrCode });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ya existe un equipo con este código QR'
+      });
+    }
+    
     const equipment = new Equipment({
       qrCode,
       name,
-      category
+      category: category || 'General'
     });
     
     await equipment.save();
@@ -176,6 +195,11 @@ app.post('/api/equipments', async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Favicon
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end();
 });
 
 // Conexión a MongoDB
