@@ -30,7 +30,161 @@ const equipmentSchema = new mongoose.Schema({
 
 const Equipment = mongoose.model('Equipment', equipmentSchema);
 
+// Modelo de Trabajador
+const workerSchema = new mongoose.Schema({
+  qrCode: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  position: String,
+  department: String,
+  attendance: [{
+    date: { type: Date, default: Date.now },
+    checkIn: Date,
+    checkOut: Date,
+    hoursWorked: Number,
+    status: { type: String, enum: ['presente', 'ausente'], default: 'presente' }
+  }]
+}, { timestamps: true });
+
+const Worker = mongoose.model('Worker', workerSchema);
+
+
+
 // Rutas
+
+// Rutas para trabajadores
+app.get('/api/workers', async (req, res) => {
+  try {
+    const workers = await Worker.find().sort({ name: 1 });
+    res.json(workers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/workers', async (req, res) => {
+  try {
+    const { name, position, department } = req.body;
+    
+    const worker = new Worker({
+      qrCode: `WORKER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name,
+      position,
+      department
+    });
+    
+    await worker.save();
+    
+    res.json({
+      success: true,
+      message: 'Trabajador agregado correctamente',
+      worker: worker
+    });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Registrar entrada/salida
+app.post('/api/attendance/scan', async (req, res) => {
+  try {
+    const { qrData } = req.body;
+    
+    const worker = await Worker.findOne({ qrCode: qrData });
+    
+    if (!worker) {
+      return res.json({
+        success: false,
+        message: 'Trabajador no encontrado'
+      });
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayAttendance = worker.attendance.find(record => 
+      new Date(record.date).setHours(0, 0, 0, 0) === today.getTime()
+    );
+    
+    let message = '';
+    
+    if (!todayAttendance) {
+      // Primera vez hoy - registrar entrada
+      worker.attendance.push({
+        checkIn: new Date(),
+        status: 'presente'
+      });
+      message = `✅ Entrada registrada para ${worker.name}`;
+    } else if (todayAttendance.checkIn && !todayAttendance.checkOut) {
+      // Ya tiene entrada - registrar salida
+      todayAttendance.checkOut = new Date();
+      
+      // Calcular horas trabajadas
+      const hoursWorked = (todayAttendance.checkOut - todayAttendance.checkIn) / (1000 * 60 * 60);
+      todayAttendance.hoursWorked = Math.round(hoursWorked * 100) / 100;
+      
+      message = `✅ Salida registrada para ${worker.name}. Horas: ${todayAttendance.hoursWorked}h`;
+    } else {
+      // Ya tiene entrada y salida hoy
+      message = `ℹ️ ${worker.name} ya completó su jornada hoy`;
+    }
+    
+    await worker.save();
+    
+    res.json({
+      success: true,
+      message: message,
+      worker: worker,
+      attendance: todayAttendance || worker.attendance[worker.attendance.length - 1]
+    });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Obtener reporte de asistencias
+app.get('/api/attendance/report', async (req, res) => {
+  try {
+    const { date } = req.query;
+    const targetDate = date ? new Date(date) : new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    
+    const workers = await Worker.aggregate([
+      {
+        $lookup: {
+          from: 'workers',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'attendanceToday'
+        }
+      },
+      {
+        $unwind: {
+          path: '$attendanceToday',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $match: {
+          $or: [
+            { 
+              'attendanceToday.date': { 
+                $gte: targetDate,
+                $lt: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000)
+              }
+            },
+            { 'attendanceToday': null }
+          ]
+        }
+      }
+    ]);
+    
+    res.json(workers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Health check
 app.get('/health', (req, res) => {
