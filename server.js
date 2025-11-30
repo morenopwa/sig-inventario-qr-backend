@@ -85,12 +85,36 @@ app.post('/api/workers', async (req, res) => {
   }
 });
 
-// Registrar entrada/salida
+// Registrar entrada/salida - VERSIÓN MEJORADA
 app.post('/api/attendance/scan', async (req, res) => {
   try {
     const { qrData } = req.body;
     
-    const worker = await Worker.findOne({ qrCode: qrData });
+    let worker;
+    
+    // ✅ ACEPTAR MÚLTIPLES FORMATOS:
+    // 1. Buscar por código corto (WKOPR1)
+    if (qrData.startsWith('WK') && qrData.length <= 10) {
+      worker = await Worker.findOne({ 
+        $or: [
+          { qrCode: { $regex: qrData, $options: 'i' } },
+          { name: { $regex: qrData.replace('WK', '').replace(/\d+$/, ''), $options: 'i' } }
+        ]
+      });
+    } 
+    // 2. Buscar por código largo (WORKER_...)
+    else if (qrData.includes('WORKER_')) {
+      worker = await Worker.findOne({ qrCode: qrData });
+    }
+    // 3. Búsqueda general
+    else {
+      worker = await Worker.findOne({ 
+        $or: [
+          { qrCode: qrData },
+          { name: { $regex: qrData, $options: 'i' } }
+        ]
+      });
+    }
     
     if (!worker) {
       return res.json({
