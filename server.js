@@ -329,6 +329,17 @@ app.get('/api/workers', async (req, res) => {
     }
 });
 
+// GET /api/workers - Obtener la lista de todos los trabajadores/usuarios
+app.get('/api/workers', async (req, res) => {
+    try {
+        // En un sistema real, se verifica el token para asegurar que solo SuperAdmin/Almacenero accedan
+        const workers = await Worker.find({}, { pin: 0 }); // Excluir el PIN por seguridad
+        res.json(workers);
+    } catch (error) {
+        res.status(500).json({ error: 'Error al obtener la lista de usuarios.' });
+    }
+});
+
 // POST /api/attendance/scan - Marcar entrada/salida
 app.post('/api/attendance/scan', async (req, res) => {
     // ... (Mantén la lógica de asistencia que tenías, ya es robusta)
