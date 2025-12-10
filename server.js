@@ -179,65 +179,75 @@ app.post('/api/register', async (req, res) => {
 });
 
 
-// POST /api/borrow - Prestar ítem
+// POST /api/borrow - Prestar ítem (CÓDIGO CORREGIDO)
 app.post('/api/borrow', async (req, res) => {
     try {
         const { qrCode, personName, notes, validatedBy } = req.body; // validatedBy es el Almacenero
         
-        const item = await Item.findOneAndUpdate(
-            { qrCode: qrCode, status: 'available' },
-            {
-                status: 'borrowed',
-                currentHolder: personName,
-                loanDate: new Date()
-            },
-            { new: true }
-        );
-        
-        if (!item) {
-            return res.status(400).json({ success: false, message: 'Item no disponible o no encontrado' });
+        if (!qrCode || !personName || !validatedBy) {
+            return res.status(400).json({ success: false, message: 'QR Code, persona y validador son obligatorios.' });
         }
-        if (item.isConsumable && item.stock <= 0) {
-            return res.status(400).json({ success: false, message: `Stock agotado para el consumible ${item.name}.` });
-        }
-        let newStock = item.stock;
-        let newStatus = 'borrowed';
-        let updateQuery = {};
 
+        // 1. Buscar el ítem (SIN actualizar aún)
+        const item = await Item.findOne({ qrCode }); 
+
+        if (!item || item.status === 'borrowed') {
+            return res.status(400).json({ success: false, message: 'Ítem no disponible (prestado, en reparación o no encontrado).' });
+        }
+
+        // 2. Definir la lógica y la consulta de actualización (updateQuery)
+        let updateQuery = {};
+        let actionType = 'PRESTAMO';
+        
         if (item.isConsumable) {
-            // Si es consumible, solo restamos el stock (no cambiamos el status a 'borrowed')
-            newStock = item.stock - 1;
-            newStatus = item.stock > 1 ? 'available' : 'borrowed'; // Si queda 1 y se presta, cambia a 'borrowed' (agotado)
             
-            // Si el stock cae a 0, establecemos el status como 'borrowed' (agotado, pendiente de registro/compra)
+            // Control de stock
+            if (item.stock <= 0) {
+                return res.status(400).json({ success: false, message: `Stock agotado para el consumible ${item.name}.` });
+            }
+            
+            // Es consumo
+            actionType = 'CONSUMO';
+            const newStock = item.stock - 1;
+            
             updateQuery = { 
-                stock: newStock, 
-                currentHolder: (newStock > 0) ? '' : personName,
-                borrowDate: Date.now()
+                $inc: { stock: -1 }, // Mongoose: Decrementar stock en 1
+                // Si el stock cae a 0, marcamos el item como 'agotado' y registramos quién lo agotó.
+                currentHolder: (newStock <= 0) ? personName : null, 
+                status: (newStock <= 0) ? 'borrowed' : 'available' // Status 'borrowed' solo cuando el stock llega a cero
             };
             
         } else {
-            // Si no es consumible, se presta la unidad única
+            // Es un préstamo de unidad única
             updateQuery = {
                 status: 'borrowed',
                 currentHolder: personName,
-                borrowDate: Date.now()
+                loanDate: new Date()
             };
         }
-        await Item.updateOne({ qrCode }, { $set: updateQuery });
 
+        // 3. Ejecutar la única actualización en la BD
+        const updatedItem = await Item.findOneAndUpdate({ qrCode }, updateQuery, { new: true });
+        
+        if (!updatedItem) {
+             return res.status(404).json({ success: false, message: 'Error al actualizar el ítem. No encontrado.' });
+        }
+
+        // 4. Registrar en Historial
         const history = new History({
-            itemId: item._id,
-            action: item.isConsumable ? 'CONSUMO' : 'PRESTAMO',
-            person: personName, // Trabajador que lo recibió
-            validatedBy: validatedBy, // Almacenero que registró
+            itemId: updatedItem._id, // Usamos el ID del documento encontrado/actualizado
+            action: actionType,
+            person: personName, 
+            validatedBy: validatedBy, 
             notes: notes,
+            quantity: item.isConsumable ? 1 : 1, // Se consume/presta 1 unidad
         });
         await history.save();
         
-        res.json({ success: true, message: 'Préstamo registrado', item: item });
+        res.json({ success: true, message: 'Transacción registrada', item: updatedItem });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error("Error en /api/borrow:", error.message);
+        res.status(500).json({ success: false, error: 'Error interno del servidor. ' + error.message });
     }
 });
 
