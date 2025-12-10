@@ -197,13 +197,41 @@ app.post('/api/borrow', async (req, res) => {
         if (!item) {
             return res.status(400).json({ success: false, message: 'Item no disponible o no encontrado' });
         }
+        if (item.isConsumable && item.stock <= 0) {
+            return res.status(400).json({ success: false, message: `Stock agotado para el consumible ${item.name}.` });
+        }
+        let newStock = item.stock;
+        let newStatus = 'borrowed';
+        let updateQuery = {};
+
+        if (item.isConsumable) {
+            // Si es consumible, solo restamos el stock (no cambiamos el status a 'borrowed')
+            newStock = item.stock - 1;
+            newStatus = item.stock > 1 ? 'available' : 'borrowed'; // Si queda 1 y se presta, cambia a 'borrowed' (agotado)
+            
+            // Si el stock cae a 0, establecemos el status como 'borrowed' (agotado, pendiente de registro/compra)
+            updateQuery = { 
+                stock: newStock, 
+                currentHolder: (newStock > 0) ? '' : personName,
+                borrowDate: Date.now()
+            };
+            
+        } else {
+            // Si no es consumible, se presta la unidad única
+            updateQuery = {
+                status: 'borrowed',
+                currentHolder: personName,
+                borrowDate: Date.now()
+            };
+        }
+        await Item.updateOne({ qrCode }, { $set: updateQuery });
 
         const history = new History({
             itemId: item._id,
-            action: 'borrow',
+            action: item.isConsumable ? 'CONSUMO' : 'PRESTAMO',
             person: personName, // Trabajador que lo recibió
             validatedBy: validatedBy, // Almacenero que registró
-            notes: notes
+            notes: notes,
         });
         await history.save();
         
