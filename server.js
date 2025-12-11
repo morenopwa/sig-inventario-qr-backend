@@ -49,8 +49,7 @@ const itemSchema = new mongoose.Schema({
     description: { type: String, default: 'Sin descripción' },
     status: {
         type: String,
-        // ✅ AÑADIDO 'repair'
-        enum: ['borrow', 'return', 'register', 'repair', 'consumption'],
+        enum: ['new', 'available', 'borrowed', 'repair'], // <-- ESTA ES LA LISTA VÁLIDA
         default: 'new'
     },
     currentHolder: { // Quien lo tiene AHORA
