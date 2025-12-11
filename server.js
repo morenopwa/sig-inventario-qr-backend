@@ -103,18 +103,32 @@ const History = mongoose.model('History', historySchema);
 /**
  * Genera el siguiente QR consecutivo (G001, G002, etc.)
  */
+// En server.js
+
 const getNextQrCode = async () => {
-    // 1. Buscar el último ítem registrado (el que tenga el QR más alto)
-    const lastItem = await Item.findOne({ qrCode: /^G\d+$/ }).sort({ qrCode: -1 }).limit(1);
+    // 1. Buscar el último ítem cuyo qrCode empiece con 'G' y sea seguido por dígitos,
+    // ORDENANDO DE FORMA DESCENDENTE por la FECHA de creación para encontrar el último registrado.
+    const lastItem = await Item.findOne({ qrCode: /^G\d+$/ })
+        .sort({ createdAt: -1 }) // 🔑 Mejor ordenar por fecha de creación (createdAt)
+        .limit(1);
 
     let nextNumber = 1;
-    if (lastItem) {
+
+    if (lastItem && lastItem.qrCode) {
         // 2. Extraer el número del último QR (ej. de 'G005' a 5)
-        const lastQrNumber = parseInt(lastItem.qrCode.substring(1));
-        nextNumber = lastQrNumber + 1;
+        const numberMatch = lastItem.qrCode.match(/\d+/);
+        
+        if (numberMatch) {
+            // Convertir el match a entero, asegurando que se extraiga el número correctamente
+            const lastQrNumber = parseInt(numberMatch[0], 10);
+            
+            if (!isNaN(lastQrNumber)) {
+                 nextNumber = lastQrNumber + 1;
+            }
+        }
     }
 
-    // 3. Formatear el número a 'G' + 3 dígitos (ej. 1 -> G001, 10 -> G010)
+    // 3. Formatear el número a 'G' + 3 dígitos
     return 'G' + String(nextNumber).padStart(3, '0');
 };
 
@@ -143,6 +157,9 @@ app.get('/api/items/:qrCode/history', async (req, res) => {
         // ...
     }
 });
+
+
+
 
 // POST /api/items - Registrar nuevo ítem (CON GENERACIÓN DE QR AUTOMÁTICA)
 app.post('/api/items', async (req, res) => {
