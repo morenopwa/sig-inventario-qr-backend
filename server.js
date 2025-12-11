@@ -133,6 +133,17 @@ app.get('/api/items', async (req, res) => {
     }
 });
 
+
+// GET /api/items/:qrCode/history - Obtener historial de un ítem específico
+app.get('/api/items/:qrCode/history', async (req, res) => {
+    try {
+        const { qrCode } = req.params;
+        // ... (resto de la lógica)
+    } catch (error) {
+        // ...
+    }
+});
+
 // POST /api/items - Registrar nuevo ítem (CON GENERACIÓN DE QR AUTOMÁTICA)
 app.post('/api/items', async (req, res) => {
     try {
@@ -393,6 +404,8 @@ app.post('/api/attendance/scan', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
 
 
 // ---------------------------------------------------------------------
