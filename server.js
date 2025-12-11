@@ -7,7 +7,6 @@ dotenv.config();
 
 const app = express();
 const PORT = parseInt(process.env.PORT) || 5001;
-// El HOST '0.0.0.0' es crucial para Render
 const HOST = '0.0.0.0';
 
 // ---------------------------------------------------------------------
@@ -20,7 +19,7 @@ app.use(express.json());
 // 2. MODELOS DE BASE DE DATOS (Mongoose Schemas)
 // ---------------------------------------------------------------------
 
-// Modelo Trabajador (Worker)
+// Modelo Trabajador (Worker) - Sin cambios
 const workerSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true }, 
     name: { type: String, required: true },
@@ -41,7 +40,7 @@ const workerSchema = new mongoose.Schema({
 const Worker = mongoose.model('Worker', workerSchema);
 
 
-// Modelo Item (Equipos de Inventario)
+// Modelo Item (Equipos de Inventario) - Sin cambios en el esquema
 const itemSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true },
     name: { type: String, required: true },
@@ -68,7 +67,7 @@ const itemSchema = new mongoose.Schema({
 const Item = mongoose.model('Item', itemSchema);
 
 
-// Modelo Historial (History)
+// Modelo Historial (History) - Sin cambios
 const historySchema = new mongoose.Schema({
     itemId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -97,9 +96,31 @@ const historySchema = new mongoose.Schema({
 
 const History = mongoose.model('History', historySchema);
 
+// ---------------------------------------------------------------------
+// 3. FUNCIÓN UTILITARIA: Generador de QR Consecutivo
+// ---------------------------------------------------------------------
+
+/**
+ * Genera el siguiente QR consecutivo (G001, G002, etc.)
+ */
+const getNextQrCode = async () => {
+    // 1. Buscar el último ítem registrado (el que tenga el QR más alto)
+    const lastItem = await Item.findOne({ qrCode: /^G\d+$/ }).sort({ qrCode: -1 }).limit(1);
+
+    let nextNumber = 1;
+    if (lastItem) {
+        // 2. Extraer el número del último QR (ej. de 'G005' a 5)
+        const lastQrNumber = parseInt(lastItem.qrCode.substring(1));
+        nextNumber = lastQrNumber + 1;
+    }
+
+    // 3. Formatear el número a 'G' + 3 dígitos (ej. 1 -> G001, 10 -> G010)
+    return 'G' + String(nextNumber).padStart(3, '0');
+};
+
 
 // ---------------------------------------------------------------------
-// 3. RUTAS DE INVENTARIO (ITEM)
+// 4. RUTAS DE INVENTARIO (ITEM)
 // ---------------------------------------------------------------------
 
 // GET /api/items - Listar todos los ítems
@@ -112,28 +133,24 @@ app.get('/api/items', async (req, res) => {
     }
 });
 
-// 🔑 CLAVE CORREGIDA: POST /api/items - Registrar nuevo ítem
-// Esta ruta sustituye a /api/register y maneja datos de consumibles.
+// POST /api/items - Registrar nuevo ítem (CON GENERACIÓN DE QR AUTOMÁTICA)
 app.post('/api/items', async (req, res) => {
     try {
-        const { qrCode, name, category, description, registeredBy, isConsumible, stock } = req.body;
+        // Quitamos qrCode del body, lo generaremos automáticamente
+        const { name, category, description, registeredBy, isConsumible, stock } = req.body;
         
-        // 1. Validar si el QR ya existe
-        const existingItem = await Item.findOne({ qrCode });
-        if (existingItem) {
-            return res.status(400).json({ error: 'El QR ya está registrado' });
-        }
-        
+        // 🔑 1. Generar el código QR consecutivo
+        const qrCode = await getNextQrCode();
+
         // 2. Crear nuevo ítem
         const newItem = new Item({
-            qrCode,
+            qrCode, // Usar el QR generado
             name,
             category,
             description,
-            status: 'available', // Siempre 'available' (o 'new') al registrar
+            status: 'available',
             registeredBy,
             isConsumible: isConsumible || false,
-            // Si es consumible, usar el stock provisto; si no, usar 1.
             stock: isConsumible ? parseInt(stock) : 1 
         });
         await newItem.save();
@@ -156,24 +173,21 @@ app.post('/api/items', async (req, res) => {
 });
 
 
-// POST /api/scan - Escanear QR (Lógica del frontend: Item o Trabajador)
+// POST /api/scan - Escanear QR (Lógica del frontend: Item o Trabajador) - Sin cambios
 app.post('/api/scan', async (req, res) => {
     try {
         const { qrCode } = req.body;
         
-        // 1. Intentar buscar como ITEM
         const item = await Item.findOne({ qrCode });
         if (item) {
             return res.json({ type: 'item', data: item, status: item.status });
         }
 
-        // 2. Intentar buscar como TRABAJADOR
         const worker = await Worker.findOne({ qrCode });
         if (worker) {
             return res.json({ type: 'worker', data: worker, status: 'found' });
         }
 
-        // 3. No encontrado
         return res.json({ type: 'none', message: 'Código QR no registrado.' });
 
     } catch (error) {
@@ -182,10 +196,11 @@ app.post('/api/scan', async (req, res) => {
 });
 
 
-// POST /api/borrow - Prestar ítem (Lógica de préstamo y consumo)
+// POST /api/borrow - Prestar ítem (Lógica de préstamo y consumo MEJORADA)
 app.post('/api/borrow', async (req, res) => {
     try {
-        const { qrCode, personName, notes, validatedBy } = req.body;
+        // Añadimos quantity para ser robustos, aunque el frontend solo envíe 1
+        const { qrCode, personName, notes, validatedBy, quantity = 1 } = req.body; 
         
         if (!qrCode || !personName || !validatedBy) {
             return res.status(400).json({ success: false, message: 'QR Code, persona y validador son obligatorios.' });
@@ -193,31 +208,36 @@ app.post('/api/borrow', async (req, res) => {
 
         const item = await Item.findOne({ qrCode }); 
 
-        if (!item || (item.status === 'borrowed' && !item.isConsumible) || item.status === 'repair') {
-            return res.status(400).json({ success: false, message: 'Ítem no disponible (prestado, en reparación o no encontrado).' });
+        if (!item) {
+            return res.status(404).json({ success: false, message: 'Ítem no encontrado.' });
         }
-
+        
         let updateQuery = {};
         let actionType = 'borrow';
         
         if (item.isConsumible) {
+            // 🔑 LÓGICA DE CONSUMIBLE: 
+            // 1. Siempre se permite consumir mientras haya stock.
+            // 2. El status y currentHolder NUNCA se tocan, solo el stock.
             
-            if (item.stock <= 0) {
-                return res.status(400).json({ success: false, message: `Stock agotado para el consumible ${item.name}.` });
+            if (item.stock < quantity) {
+                return res.status(400).json({ success: false, message: `Stock insuficiente. Disponible: ${item.stock}.` });
             }
             
             actionType = 'consumption';
-            const newStock = item.stock - 1;
             
             updateQuery = { 
-                $inc: { stock: -1 }, // Decrementar stock
-                // Si el stock cae a 0, marcamos el item como 'agotado' y registramos quien lo agotó.
-                currentHolder: (newStock <= 0) ? personName : null, 
-                status: (newStock <= 0) ? 'borrowed' : 'available'
+                $inc: { stock: -quantity } // Decrementar stock por la cantidad
+                // No tocamos status/currentHolder, el ítem sigue 'available'
             };
             
         } else {
-            // Préstamo de unidad única
+            // Lógica para ítem de unidad única (Herramienta, etc.)
+            if (item.status === 'borrowed' || item.status === 'repair') {
+                return res.status(400).json({ success: false, message: 'Ítem de unidad única no disponible (prestado o en reparación).' });
+            }
+            
+            actionType = 'borrow';
             updateQuery = {
                 status: 'borrowed',
                 currentHolder: personName,
@@ -225,12 +245,9 @@ app.post('/api/borrow', async (req, res) => {
             };
         }
 
+        // Ejecutar la actualización en la BD
         const updatedItem = await Item.findOneAndUpdate({ qrCode }, updateQuery, { new: true });
         
-        if (!updatedItem) {
-             return res.status(404).json({ success: false, message: 'Error al actualizar el ítem. No encontrado.' });
-        }
-
         // Registrar en Historial
         const history = new History({
             itemId: updatedItem._id,
@@ -238,7 +255,7 @@ app.post('/api/borrow', async (req, res) => {
             person: personName, 
             validatedBy: validatedBy, 
             notes: notes,
-            quantity: 1,
+            quantity: quantity, // Cantidad consumida/prestada
         });
         await history.save();
         
@@ -250,14 +267,14 @@ app.post('/api/borrow', async (req, res) => {
 });
 
 
-// POST /api/return - Devolver ítem
+// POST /api/return - Devolver ítem (Solo aplica a ítems de unidad única) - Sin cambios
 app.post('/api/return', async (req, res) => {
     try {
         const { qrCode, notes, personName, validatedBy } = req.body;
         
         const item = await Item.findOneAndUpdate(
-            // Solo se puede devolver si estaba 'borrowed' (no si está 'available' o 'repair')
-            { qrCode: qrCode, status: 'borrowed' },
+            // Aseguramos que NO sea consumible y que esté prestado
+            { qrCode: qrCode, status: 'borrowed', isConsumible: false },
             {
                 status: 'available',
                 currentHolder: null,
@@ -267,7 +284,7 @@ app.post('/api/return', async (req, res) => {
         );
         
         if (!item) {
-            return res.status(400).json({ success: false, message: 'Item no estaba prestado o no encontrado' });
+            return res.status(400).json({ success: false, message: 'Item no estaba prestado, es consumible (no se devuelve) o no encontrado.' });
         }
         
         const history = new History({
@@ -287,14 +304,12 @@ app.post('/api/return', async (req, res) => {
 
 
 // ---------------------------------------------------------------------
-// 4. RUTAS DE TRABAJADORES (WORKER) Y AUTENTICACIÓN
+// 5. RUTAS DE TRABAJADORES (WORKER) Y AUTENTICACIÓN - Sin cambios
 // ---------------------------------------------------------------------
 
-// POST /api/login - INICIO DE SESIÓN
 app.post('/api/login', async (req, res) => {
     try {
         const { name, pin } = req.body;
-        
         const worker = await Worker.findOne({ name });
 
         if (!worker || worker.pin !== pin) {
@@ -306,7 +321,6 @@ app.post('/api/login', async (req, res) => {
             name: worker.name,
             role: worker.role
         };
-
         return res.json({ success: true, message: 'Login exitoso', user: userData });
 
     } catch (error) {
@@ -314,7 +328,6 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// POST /api/workers/register - REGISTRO DE NUEVOS USUARIOS
 app.post('/api/workers/register', async (req, res) => {
     try {
         const { name, position, role, pin } = req.body; 
@@ -323,7 +336,6 @@ app.post('/api/workers/register', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Todos los campos son requeridos.' });
         }
 
-        // Generar QR único
         const qrCode = `W-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
 
         const newWorker = new Worker({
@@ -347,18 +359,15 @@ app.post('/api/workers/register', async (req, res) => {
     }
 });
 
-
-// GET /api/workers - Obtener la lista de todos los trabajadores/usuarios
 app.get('/api/workers', async (req, res) => {
     try {
-        const workers = await Worker.find({}, { pin: 0 }); // Excluir el PIN por seguridad
+        const workers = await Worker.find({}, { pin: 0 });
         res.json(workers);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener la lista de usuarios.' });
     }
 });
 
-// POST /api/attendance/scan - Marcar entrada/salida
 app.post('/api/attendance/scan', async (req, res) => {
     const { qrCode } = req.body;
     try {
@@ -368,7 +377,7 @@ app.post('/api/attendance/scan', async (req, res) => {
         }
 
         const lastAttendance = worker.attendance.length > 0 ? worker.attendance[worker.attendance.length - 1] : null;
-        const lastAction = lastAttendance ? lastAttendance.action : 'OUT'; // Asumir OUT si no hay registro
+        const lastAction = lastAttendance ? lastAttendance.action : 'OUT'; 
 
         const newAction = lastAction === 'IN' ? 'OUT' : 'IN';
         
@@ -387,7 +396,7 @@ app.post('/api/attendance/scan', async (req, res) => {
 
 
 // ---------------------------------------------------------------------
-// 5. CONEXIÓN Y SERVIDOR
+// 6. CONEXIÓN Y SERVIDOR - Sin cambios
 // ---------------------------------------------------------------------
 
 // Health check para Render
