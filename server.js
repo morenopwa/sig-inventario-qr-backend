@@ -295,39 +295,48 @@ app.post('/api/borrow', async (req, res) => {
 });
 
 
-// POST /api/return - Devolver ítem (Solo aplica a ítems de unidad única) - Sin cambios
+// POST /api/return - Devolver ítem (Solo aplica a ítems de unidad única)
 app.post('/api/return', async (req, res) => {
-    try {
-        const { qrCode, notes, personName, validatedBy } = req.body;
-        
-        const item = await Item.findOneAndUpdate(
-            // Aseguramos que NO sea consumible y que esté prestado
-            { qrCode: qrCode, status: 'borrowed', isConsumible: false },
-            {
-                status: 'available',
-                currentHolder: null,
-                loanDate: null
-            },
-            { new: true }
-        );
-        
-        if (!item) {
-            return res.status(400).json({ success: false, message: 'Item no estaba prestado, es consumible (no se devuelve) o no encontrado.' });
-        }
-        
-        const history = new History({
-            itemId: item._id,
-            action: 'return',
-            person: personName,
-            validatedBy: validatedBy,
-            notes: notes
-        });
-        await history.save();
-        
-        res.json({ success: true, message: 'Devolución registrada', item: item });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    try {
+        // 🔑 CORRECCIÓN: Usar los nombres de campos que envía el frontend:
+        // personReturning (es el que devuelve) y almaceneroName (es el validador)
+        const { qrCode, notes, personReturning, almaceneroName } = req.body;
+        
+        // 1. Validar campos mínimos
+        if (!qrCode || !personReturning || !almaceneroName) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: QR Code, persona que devuelve, o nombre del almacenero.' });
+        }
+
+        // 2. Actualizar Ítem: Buscamos un ítem prestado y no consumible
+        const item = await Item.findOneAndUpdate(
+            { qrCode: qrCode, status: 'borrowed', isConsumible: false },
+            {
+                status: 'available',
+                currentHolder: null,
+                loanDate: null
+            },
+            { new: true }
+        );
+        
+        if (!item) {
+            return res.status(400).json({ success: false, message: 'El ítem no pudo ser devuelto. Ya no estaba prestado o es consumible.' });
+        }
+        
+        // 3. Registrar en Historial
+        const history = new History({
+            itemId: item._id,
+            action: 'return',
+            person: personReturning, // 🔑 Usar la persona que devuelve como 'person' del historial
+            validatedBy: almaceneroName, // 🔑 Usar el almacenero como 'validatedBy'
+            notes: notes
+        });
+        await history.save();
+        
+        res.json({ success: true, message: 'Devolución registrada', item: item });
+    } catch (error) {
+        console.error('Error en /api/return:', error.message);
+        res.status(500).json({ success: false, error: 'Error interno del servidor. ' + error.message });
+    }
 });
 
 
