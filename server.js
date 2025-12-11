@@ -50,7 +50,7 @@ const itemSchema = new mongoose.Schema({
     status: {
         type: String,
         // ✅ AÑADIDO 'repair'
-        enum: ['new', 'available', 'borrowed', 'repair'], 
+        enum: ['borrow', 'return', 'register', 'repair', 'consumption'],
         default: 'new'
     },
     currentHolder: { // Quien lo tiene AHORA
@@ -197,7 +197,7 @@ app.post('/api/borrow', async (req, res) => {
 
         // 2. Definir la lógica y la consulta de actualización (updateQuery)
         let updateQuery = {};
-        let actionType = 'PRESTAMO';
+        let actionType = 'borrow';
         
         if (item.isConsumable) {
             
@@ -207,7 +207,7 @@ app.post('/api/borrow', async (req, res) => {
             }
             
             // Es consumo
-            actionType = 'CONSUMO';
+            actionType = 'consumption';
             const newStock = item.stock - 1;
             
             updateQuery = { 
