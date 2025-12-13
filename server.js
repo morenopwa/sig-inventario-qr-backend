@@ -19,7 +19,6 @@ app.use(express.json());
 // 2. MODELOS DE BASE DE DATOS (Mongoose Schemas)
 // ---------------------------------------------------------------------
 
-// Modelo Trabajador (Worker) - Sin cambios
 const workerSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true }, 
     name: { type: String, required: true },
@@ -36,11 +35,8 @@ const workerSchema = new mongoose.Schema({
         notes: String
     }]
 }, { timestamps: true });
-
 const Worker = mongoose.model('Worker', workerSchema);
 
-
-// Modelo Item (Equipos de Inventario) - Sin cambios en el esquema
 const itemSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true },
     name: { type: String, required: true },
@@ -63,11 +59,8 @@ const itemSchema = new mongoose.Schema({
     isConsumible: { type: Boolean, default: false }, 
     stock: { type: Number, default: 1 }
 }, { timestamps: true });
-
 const Item = mongoose.model('Item', itemSchema);
 
-
-// Modelo Historial (History) - Sin cambios
 const historySchema = new mongoose.Schema({
     itemId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -79,11 +72,11 @@ const historySchema = new mongoose.Schema({
         enum: ['borrow', 'return', 'register', 'repair', 'consumption'],
         required: true
     },
-    person: {
+    person: { // El receptor/que devuelve/que registra
         type: String,
         required: true
     },
-    validatedBy: {
+    validatedBy: { // El almacenero que valida
         type: String,
         default: 'Sistema' 
     },
@@ -93,33 +86,23 @@ const historySchema = new mongoose.Schema({
     },
     notes: { type: String, default: '' },
 }, { timestamps: true });
-
 const History = mongoose.model('History', historySchema);
 
 // ---------------------------------------------------------------------
 // 3. FUNCIÓN UTILITARIA: Generador de QR Consecutivo
 // ---------------------------------------------------------------------
 
-/**
- * Genera el siguiente QR consecutivo (G001, G002, etc.)
- */
-// En server.js
-
 const getNextQrCode = async () => {
-    // 1. Buscar el último ítem cuyo qrCode empiece con 'G' y sea seguido por dígitos,
-    // ORDENANDO DE FORMA DESCENDENTE por la FECHA de creación para encontrar el último registrado.
     const lastItem = await Item.findOne({ qrCode: /^G\d+$/ })
-        .sort({ createdAt: -1 }) // 🔑 Mejor ordenar por fecha de creación (createdAt)
+        .sort({ createdAt: -1 })
         .limit(1);
 
     let nextNumber = 1;
 
     if (lastItem && lastItem.qrCode) {
-        // 2. Extraer el número del último QR (ej. de 'G005' a 5)
         const numberMatch = lastItem.qrCode.match(/\d+/);
         
         if (numberMatch) {
-            // Convertir el match a entero, asegurando que se extraiga el número correctamente
             const lastQrNumber = parseInt(numberMatch[0], 10);
             
             if (!isNaN(lastQrNumber)) {
@@ -128,7 +111,6 @@ const getNextQrCode = async () => {
         }
     }
 
-    // 3. Formatear el número a 'G' + 3 dígitos
     return 'G' + String(nextNumber).padStart(3, '0');
 };
 
@@ -152,27 +134,36 @@ app.get('/api/items', async (req, res) => {
 app.get('/api/items/:qrCode/history', async (req, res) => {
     try {
         const { qrCode } = req.params;
-        // ... (resto de la lógica)
+        
+        // 1. Buscar el Ítem por qrCode para obtener el ID
+        const item = await Item.findOne({ qrCode });
+        if (!item) {
+            return res.status(404).json({ message: 'Ítem no encontrado.' });
+        }
+        
+        // 2. Buscar el Historial por itemId, ordenado cronológicamente
+        const history = await History.find({ itemId: item._id }).sort({ createdAt: 1 });
+        
+        // 🔑 NOTA: La propiedad 'person' en el historial ahora contendrá
+        // el nombre de la persona a la que se prestó o que devolvió el ítem.
+        return res.json({ history });
+
     } catch (error) {
-        // ...
+        console.error('Error al obtener historial:', error);
+        res.status(500).json({ error: error.message });
     }
 });
-
-
 
 
 // POST /api/items - Registrar nuevo ítem (CON GENERACIÓN DE QR AUTOMÁTICA)
 app.post('/api/items', async (req, res) => {
     try {
-        // Quitamos qrCode del body, lo generaremos automáticamente
         const { name, category, description, registeredBy, isConsumible, stock } = req.body;
         
-        // 🔑 1. Generar el código QR consecutivo
         const qrCode = await getNextQrCode();
 
-        // 2. Crear nuevo ítem
         const newItem = new Item({
-            qrCode, // Usar el QR generado
+            qrCode,
             name,
             category,
             description,
@@ -183,7 +174,6 @@ app.post('/api/items', async (req, res) => {
         });
         await newItem.save();
 
-        // 3. Registrar en Historial
         const history = new History({
             itemId: newItem._id,
             action: 'register',
@@ -193,7 +183,7 @@ app.post('/api/items', async (req, res) => {
         });
         await history.save();
 
-        res.json({ message: 'Item registrado exitosamente', item: newItem });
+        res.json({ message: 'Item registrado exitosamente', item: newItem, qrCode: qrCode });
     } catch (error) {
         console.error('Error al registrar ítem:', error);
         res.status(500).json({ error: error.message });
@@ -201,7 +191,7 @@ app.post('/api/items', async (req, res) => {
 });
 
 
-// POST /api/scan - Escanear QR (Lógica del frontend: Item o Trabajador) - Sin cambios
+// POST /api/scan - Escanear QR
 app.post('/api/scan', async (req, res) => {
     try {
         const { qrCode } = req.body;
@@ -224,10 +214,9 @@ app.post('/api/scan', async (req, res) => {
 });
 
 
-// POST /api/borrow - Prestar ítem (Lógica de préstamo y consumo MEJORADA)
+// POST /api/borrow - Prestar ítem (Préstamo o Consumo)
 app.post('/api/borrow', async (req, res) => {
     try {
-        // Añadimos quantity para ser robustos, aunque el frontend solo envíe 1
         const { qrCode, personName, notes, validatedBy, quantity = 1 } = req.body; 
         
         if (!qrCode || !personName || !validatedBy) {
@@ -244,25 +233,18 @@ app.post('/api/borrow', async (req, res) => {
         let actionType = 'borrow';
         
         if (item.isConsumible) {
-            // 🔑 LÓGICA DE CONSUMIBLE: 
-            // 1. Siempre se permite consumir mientras haya stock.
-            // 2. El status y currentHolder NUNCA se tocan, solo el stock.
-            
             if (item.stock < quantity) {
                 return res.status(400).json({ success: false, message: `Stock insuficiente. Disponible: ${item.stock}.` });
             }
             
             actionType = 'consumption';
-            
             updateQuery = { 
-                $inc: { stock: -quantity } // Decrementar stock por la cantidad
-                // No tocamos status/currentHolder, el ítem sigue 'available'
+                $inc: { stock: -quantity } 
             };
             
         } else {
-            // Lógica para ítem de unidad única (Herramienta, etc.)
             if (item.status === 'borrowed' || item.status === 'repair') {
-                return res.status(400).json({ success: false, message: 'Ítem de unidad única no disponible (prestado o en reparación).' });
+                return res.status(400).json({ success: false, message: 'Ítem de unidad única no disponible.' });
             }
             
             actionType = 'borrow';
@@ -273,17 +255,15 @@ app.post('/api/borrow', async (req, res) => {
             };
         }
 
-        // Ejecutar la actualización en la BD
         const updatedItem = await Item.findOneAndUpdate({ qrCode }, updateQuery, { new: true });
         
-        // Registrar en Historial
         const history = new History({
             itemId: updatedItem._id,
             action: actionType,
             person: personName, 
             validatedBy: validatedBy, 
             notes: notes,
-            quantity: quantity, // Cantidad consumida/prestada
+            quantity: quantity,
         });
         await history.save();
         
@@ -295,56 +275,53 @@ app.post('/api/borrow', async (req, res) => {
 });
 
 
-// POST /api/return - Devolver ítem (Solo aplica a ítems de unidad única)
+// POST /api/return - Devolver ítem
 app.post('/api/return', async (req, res) => {
-    try {
-        // 🔑 CORRECCIÓN: Usar los nombres de campos que envía el frontend:
-        // personReturning (es el que devuelve) y almaceneroName (es el validador)
-        const { qrCode, notes, personReturning, almaceneroName } = req.body;
-        
-        // 1. Validar campos mínimos
-        if (!qrCode || !personReturning || !almaceneroName) {
-            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: QR Code, persona que devuelve, o nombre del almacenero.' });
-        }
+    try {
+        // 🔑 Usar los nombres de campos que envía el frontend
+        const { qrCode, notes, personReturning, almaceneroName } = req.body;
+        
+        if (!qrCode || !personReturning || !almaceneroName) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: QR Code, persona que devuelve, o nombre del almacenero.' });
+        }
 
-        // 2. Actualizar Ítem: Buscamos un ítem prestado y no consumible
-        const item = await Item.findOneAndUpdate(
-            { qrCode: qrCode, status: 'borrowed', isConsumible: false },
-            {
-                status: 'available',
-                currentHolder: null,
-                loanDate: null
-            },
-            { new: true }
-        );
-        
-        if (!item) {
-            return res.status(400).json({ success: false, message: 'El ítem no pudo ser devuelto. Ya no estaba prestado o es consumible.' });
-        }
-        
-        // 3. Registrar en Historial
-        const history = new History({
-            itemId: item._id,
-            action: 'return',
-            person: personReturning, // 🔑 Usar la persona que devuelve como 'person' del historial
-            validatedBy: almaceneroName, // 🔑 Usar el almacenero como 'validatedBy'
-            notes: notes
-        });
-        await history.save();
-        
-        res.json({ success: true, message: 'Devolución registrada', item: item });
-    } catch (error) {
-        console.error('Error en /api/return:', error.message);
-        res.status(500).json({ success: false, error: 'Error interno del servidor. ' + error.message });
-    }
+        const item = await Item.findOneAndUpdate(
+            { qrCode: qrCode, status: 'borrowed', isConsumible: false },
+            {
+                status: 'available',
+                currentHolder: null,
+                loanDate: null
+            },
+            { new: true }
+        );
+        
+        if (!item) {
+            return res.status(400).json({ success: false, message: 'El ítem no pudo ser devuelto. Ya no estaba prestado o es consumible.' });
+        }
+        
+        const history = new History({
+            itemId: item._id,
+            action: 'return',
+            person: personReturning, // La persona que devuelve
+            validatedBy: almaceneroName, // El almacenero
+            notes: notes
+        });
+        await history.save();
+        
+        res.json({ success: true, message: 'Devolución registrada', item: item });
+    } catch (error) {
+        console.error('Error en /api/return:', error.message);
+        res.status(500).json({ success: false, error: 'Error interno del servidor. ' + error.message });
+    }
 });
 
 
 // ---------------------------------------------------------------------
-// 5. RUTAS DE TRABAJADORES (WORKER) Y AUTENTICACIÓN - Sin cambios
+// 5. RUTAS DE TRABAJADORES (WORKER) Y AUTENTICACIÓN
 // ---------------------------------------------------------------------
-
+// ... (Tus rutas de /api/login, /api/workers/register, /api/workers, /api/attendance/scan) ...
 app.post('/api/login', async (req, res) => {
+    // Lógica de login
     try {
         const { name, pin } = req.body;
         const worker = await Worker.findOne({ name });
@@ -364,6 +341,8 @@ app.post('/api/login', async (req, res) => {
         res.status(500).json({ success: false, error: 'Error interno del servidor durante el login.' });
     }
 });
+
+// ... (Resto de rutas de Worker) ...
 
 app.post('/api/workers/register', async (req, res) => {
     try {
@@ -431,19 +410,14 @@ app.post('/api/attendance/scan', async (req, res) => {
     }
 });
 
-
-
-
 // ---------------------------------------------------------------------
-// 6. CONEXIÓN Y SERVIDOR - Sin cambios
+// 6. CONEXIÓN Y SERVIDOR
 // ---------------------------------------------------------------------
 
-// Health check para Render
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', database: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado' });
 });
 
-// Conexión a MongoDB
 mongoose.connect(process.env.MONGODB_URI)
 .then(() => console.log('✅ Conectado a MongoDB Atlas'))
 .catch(error => console.error('❌ Error MongoDB:', error));
