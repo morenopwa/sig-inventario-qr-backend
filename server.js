@@ -18,6 +18,7 @@ app.use(express.json());
 // ---------------------------------------------------------------------
 // 2. MODELOS DE BASE DE DATOS (Mongoose Schemas)
 // ---------------------------------------------------------------------
+// 
 
 const workerSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true }, 
@@ -135,17 +136,13 @@ app.get('/api/items/:qrCode/history', async (req, res) => {
     try {
         const { qrCode } = req.params;
         
-        // 1. Buscar el Ítem por qrCode para obtener el ID
         const item = await Item.findOne({ qrCode });
         if (!item) {
             return res.status(404).json({ message: 'Ítem no encontrado.' });
         }
         
-        // 2. Buscar el Historial por itemId, ordenado cronológicamente
         const history = await History.find({ itemId: item._id }).sort({ createdAt: 1 });
         
-        // 🔑 NOTA: La propiedad 'person' en el historial ahora contendrá
-        // el nombre de la persona a la que se prestó o que devolvió el ítem.
         return res.json({ history });
 
     } catch (error) {
@@ -155,10 +152,14 @@ app.get('/api/items/:qrCode/history', async (req, res) => {
 });
 
 
-// POST /api/items - Registrar nuevo ítem (CON GENERACIÓN DE QR AUTOMÁTICA)
+// POST /api/items - Registrar nuevo ítem (Soporta registro por Voz)
 app.post('/api/items', async (req, res) => {
     try {
         const { name, category, description, registeredBy, isConsumible, stock } = req.body;
+        
+        if (!name || !category || !registeredBy) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: name, category, y registeredBy.' });
+        }
         
         const qrCode = await getNextQrCode();
 
@@ -166,7 +167,7 @@ app.post('/api/items', async (req, res) => {
             qrCode,
             name,
             category,
-            description,
+            description: description || 'Registrado por voz o formulario simple', // Usa descripción por defecto
             status: 'available',
             registeredBy,
             isConsumible: isConsumible || false,
@@ -217,13 +218,17 @@ app.post('/api/scan', async (req, res) => {
 // POST /api/borrow - Prestar ítem (Préstamo o Consumo)
 app.post('/api/borrow', async (req, res) => {
     try {
+        // En este caso, qrCode puede ser el QR o el nombre si la lógica de voz no captura el QR
         const { qrCode, personName, notes, validatedBy, quantity = 1 } = req.body; 
         
         if (!qrCode || !personName || !validatedBy) {
-            return res.status(400).json({ success: false, message: 'QR Code, persona y validador son obligatorios.' });
+            return res.status(400).json({ success: false, message: 'QR Code/Nombre, persona y validador son obligatorios.' });
         }
 
-        const item = await Item.findOne({ qrCode }); 
+        // Buscar por QR o Nombre
+        const item = await Item.findOne({ 
+            $or: [{ qrCode: qrCode }, { name: { $regex: new RegExp(`^${qrCode}$`, 'i') } }]
+        }); 
 
         if (!item) {
             return res.status(404).json({ success: false, message: 'Ítem no encontrado.' });
@@ -255,7 +260,7 @@ app.post('/api/borrow', async (req, res) => {
             };
         }
 
-        const updatedItem = await Item.findOneAndUpdate({ qrCode }, updateQuery, { new: true });
+        const updatedItem = await Item.findOneAndUpdate({ _id: item._id }, updateQuery, { new: true });
         
         const history = new History({
             itemId: updatedItem._id,
@@ -278,15 +283,27 @@ app.post('/api/borrow', async (req, res) => {
 // POST /api/return - Devolver ítem
 app.post('/api/return', async (req, res) => {
     try {
-        // 🔑 Usar los nombres de campos que envía el frontend
         const { qrCode, notes, personReturning, almaceneroName } = req.body;
         
         if (!qrCode || !personReturning || !almaceneroName) {
-            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: QR Code, persona que devuelve, o nombre del almacenero.' });
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: QR Code/Nombre, persona que devuelve, o nombre del almacenero.' });
+        }
+        
+        // Buscar por QR o Nombre
+        const item = await Item.findOne({ 
+            $or: [{ qrCode: qrCode }, { name: { $regex: new RegExp(`^${qrCode}$`, 'i') } }]
+        }); 
+
+        if (!item || item.isConsumible) {
+             return res.status(400).json({ success: false, message: 'El ítem no pudo ser devuelto. Es consumible o no existe.' });
+        }
+        
+        if (item.status !== 'borrowed') {
+             return res.status(400).json({ success: false, message: 'El ítem no estaba marcado como prestado.' });
         }
 
-        const item = await Item.findOneAndUpdate(
-            { qrCode: qrCode, status: 'borrowed', isConsumible: false },
+        const updatedItem = await Item.findOneAndUpdate(
+            { _id: item._id },
             {
                 status: 'available',
                 currentHolder: null,
@@ -295,20 +312,16 @@ app.post('/api/return', async (req, res) => {
             { new: true }
         );
         
-        if (!item) {
-            return res.status(400).json({ success: false, message: 'El ítem no pudo ser devuelto. Ya no estaba prestado o es consumible.' });
-        }
-        
         const history = new History({
-            itemId: item._id,
+            itemId: updatedItem._id,
             action: 'return',
-            person: personReturning, // La persona que devuelve
-            validatedBy: almaceneroName, // El almacenero
+            person: personReturning,
+            validatedBy: almaceneroName,
             notes: notes
         });
         await history.save();
         
-        res.json({ success: true, message: 'Devolución registrada', item: item });
+        res.json({ success: true, message: 'Devolución registrada', item: updatedItem });
     } catch (error) {
         console.error('Error en /api/return:', error.message);
         res.status(500).json({ success: false, error: 'Error interno del servidor. ' + error.message });
@@ -319,9 +332,8 @@ app.post('/api/return', async (req, res) => {
 // ---------------------------------------------------------------------
 // 5. RUTAS DE TRABAJADORES (WORKER) Y AUTENTICACIÓN
 // ---------------------------------------------------------------------
-// ... (Tus rutas de /api/login, /api/workers/register, /api/workers, /api/attendance/scan) ...
+// ... (Tus rutas de Worker, Login y Attendance) ...
 app.post('/api/login', async (req, res) => {
-    // Lógica de login
     try {
         const { name, pin } = req.body;
         const worker = await Worker.findOne({ name });
@@ -341,8 +353,6 @@ app.post('/api/login', async (req, res) => {
         res.status(500).json({ success: false, error: 'Error interno del servidor durante el login.' });
     }
 });
-
-// ... (Resto de rutas de Worker) ...
 
 app.post('/api/workers/register', async (req, res) => {
     try {
