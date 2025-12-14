@@ -420,6 +420,40 @@ app.post('/api/attendance/scan', async (req, res) => {
     }
 });
 
+app.delete('/api/items/:id', async (req, res) => {
+    try {
+        const itemId = req.params.id; // Captura el ID desde la URL
+        
+        // **IMPORTANTE:** Verificar la existencia del ID
+        if (!itemId || itemId.length !== 24) { // Asumiendo que usas MongoDB ObjectId
+            return res.status(400).json({ message: 'ID de ítem inválido.' });
+        }
+
+        // 1. Encontrar el ítem y eliminarlo
+        const deletedItem = await Item.findByIdAndDelete(itemId);
+
+        // 2. Si no se encuentra, devolver 404 (Aunque el frontend ya maneja un 404, es buena práctica)
+        if (!deletedItem) {
+            return res.status(404).json({ message: 'Ítem no encontrado para eliminar.' });
+        }
+
+        // 3. Opcional: Si el ítem tiene un código QR asociado que debe liberarse/eliminarse,
+        //   la lógica de limpieza (por ejemplo, del historial o de la tabla de códigos QR) iría aquí.
+
+        console.log(`Ítem con QR ${deletedItem.qrCode} eliminado por el sistema.`);
+
+        // 4. Respuesta exitosa
+        res.status(200).json({ 
+            message: `Ítem ${deletedItem.name} (${deletedItem.qrCode}) eliminado exitosamente.`,
+            deletedItem: deletedItem
+        });
+
+    } catch (error) {
+        console.error('Error al eliminar ítem:', error);
+        res.status(500).json({ message: 'Error interno del servidor al eliminar el ítem.' });
+    }
+});
+
 // ---------------------------------------------------------------------
 // 6. CONEXIÓN Y SERVIDOR
 // ---------------------------------------------------------------------
