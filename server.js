@@ -29,7 +29,7 @@ const workerSchema = new mongoose.Schema({
     password: { type: String, default: '1234' },
     role: { 
         type: String, 
-        enum: ['SuperAdmin', 'Almacenero', 'Trabajador', 'Maniobrista', 'Residente'], 
+        enum: ['SuperAdmin', 'Almacenero', 'Trabajador', 'Maniobrista', 'Residente', 'Prevencionista'], 
         default: 'Trabajador' 
     }, 
     attendance: [{
