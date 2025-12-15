@@ -23,8 +23,10 @@ app.use(express.json());
 const workerSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true }, 
     name: { type: String, required: true },
-    position: String,
-    pin: { type: String, required: true, default: '1234' }, 
+    dni: { type: String, required: true },
+    phone:{type: String}, 
+    email:{type: String}, 
+    password: { type: String, default: '1234' },
     role: { 
         type: String, 
         enum: ['SuperAdmin', 'Almacenero', 'Trabajador', 'Maniobrista', 'Residente'], 
@@ -367,6 +369,7 @@ app.post('/api/workers/register', async (req, res) => {
         const newWorker = new Worker({
             qrCode,
             name,
+            dni,
             phone,
             email,
             password,
@@ -382,6 +385,7 @@ app.post('/api/workers/register', async (req, res) => {
                 name: newWorker.name, 
                 phone: newWorker.phone,
                 email: newWorker.email, 
+                password: newWorker.password, 
                 role: newWorker.role }
         });
 
