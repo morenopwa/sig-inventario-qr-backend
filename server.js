@@ -415,7 +415,7 @@ app.delete('/api/users/:id',
             const userId = req.params.id;
 
             // 1. Eliminar al usuario de la base de datos
-            const deletedUser = await User.findByIdAndDelete(userId);
+            const deletedUser = await Worker.findByIdAndDelete(userId);
 
             // 2. Verificar si se encontró y eliminó
             if (!deletedUser) {
