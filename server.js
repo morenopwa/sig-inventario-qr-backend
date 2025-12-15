@@ -356,9 +356,9 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/workers/register', async (req, res) => {
     try {
-        const { name, position, role, pin } = req.body; 
+        const { name, phone, email, password, role } = req.body; 
 
-        if (!name || !position || !role || !pin) {
+        if (!name || !phone ||!email ||!password || !role ) {
             return res.status(400).json({ success: false, error: 'Todos los campos son requeridos.' });
         }
 
@@ -367,9 +367,10 @@ app.post('/api/workers/register', async (req, res) => {
         const newWorker = new Worker({
             qrCode,
             name,
-            position,
-            role,
-            pin, 
+            phone,
+            email,
+            password,
+            role, 
         });
 
         await newWorker.save();
@@ -377,7 +378,11 @@ app.post('/api/workers/register', async (req, res) => {
         res.json({
             success: true,
             message: `${newWorker.role} ${newWorker.name} registrado con éxito.`,
-            worker: { name: newWorker.name, qrCode: newWorker.qrCode, role: newWorker.role }
+            worker: { 
+                name: newWorker.name, 
+                phone: newWorker.phone,
+                email: newWorker.email, 
+                role: newWorker.role }
         });
 
     } catch (error) {
