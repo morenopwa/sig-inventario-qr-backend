@@ -27,7 +27,7 @@ const workerSchema = new mongoose.Schema({
     pin: { type: String, required: true, default: '1234' }, 
     role: { 
         type: String, 
-        enum: ['SuperAdmin', 'Almacenero', 'Trabajador'], 
+        enum: ['SuperAdmin', 'Almacenero', 'Trabajador', 'Maniobrista', 'Residente'], 
         default: 'Trabajador' 
     }, 
     attendance: [{
@@ -393,6 +393,40 @@ app.get('/api/workers', async (req, res) => {
         res.status(500).json({ error: 'Error al obtener la lista de usuarios.' });
     }
 });
+
+app.delete('/api/users/:id', 
+    // Si estás usando middleware de autenticación (authMiddleware, roleMiddleware), 
+    // debes incluirlos aquí para proteger la ruta:
+    // authMiddleware,
+    // roleMiddleware(['SuperAdmin']),
+    
+    async (req, res) => {
+        try {
+            const userId = req.params.id;
+
+            // 1. Eliminar al usuario de la base de datos
+            const deletedUser = await User.findByIdAndDelete(userId);
+
+            // 2. Verificar si se encontró y eliminó
+            if (!deletedUser) {
+                // Si Mongoose no encuentra el ID, devuelve 404
+                return res.status(404).json({ message: 'Usuario no encontrado para eliminar.' });
+            }
+
+            // 3. Respuesta exitosa
+            console.log(`Usuario con ID ${userId} y nombre ${deletedUser.name} ha sido eliminado.`);
+            res.status(200).json({ 
+                message: `Usuario ${deletedUser.name} eliminado exitosamente.`,
+                deletedUser: deletedUser
+            });
+
+        } catch (error) {
+            // Manejo de errores de servidor o de base de datos
+            console.error('Error al intentar eliminar usuario:', error);
+            res.status(500).json({ message: 'Error interno del servidor al eliminar el usuario.' });
+        }
+    }
+);
 
 app.post('/api/attendance/scan', async (req, res) => {
     const { qrCode } = req.body;
