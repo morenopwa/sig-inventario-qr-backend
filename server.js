@@ -193,6 +193,60 @@ app.post('/api/items', async (req, res) => {
     }
 });
 
+app.post('/api/stock/add', async (req, res) => {
+    try {
+        const { qrCode, quantity, validatedBy, notes } = req.body; // Recibe el QR, cantidad, y quién valida
+        
+        if (!qrCode || !quantity || !validatedBy || typeof quantity !== 'number' || quantity <= 0) {
+            return res.status(400).json({ success: false, message: 'QR Code, cantidad válida (>0), y validador son obligatorios.' });
+        }
+
+        // Buscar el ítem por QR o Nombre
+        const item = await Item.findOne({ 
+            $or: [{ qrCode: qrCode }, { name: { $regex: new RegExp(`^${qrCode}$`, 'i') } }]
+        }); 
+
+        if (!item) {
+            return res.status(404).json({ success: false, message: 'Ítem no encontrado.' });
+        }
+        
+        // Opcional: Si quieres forzar que solo se pueda añadir stock a consumibles
+        if (!item.isConsumible) {
+             // Puedes cambiar esto, pero tiene sentido solo añadir stock a consumibles
+             // Si no es consumible, stock es siempre 1 (unidad única)
+             return res.status(400).json({ success: false, message: 'Solo se puede añadir stock a ítems consumibles.' });
+        }
+
+        // 1. Actualizar el stock
+        const updatedItem = await Item.findOneAndUpdate(
+            { _id: item._id },
+            { $inc: { stock: quantity } }, // Incrementa el stock
+            { new: true }
+        );
+        
+        // 2. Registrar la acción en el historial
+        const history = new History({
+            itemId: updatedItem._id,
+            action: 'register', // O podrías usar 'stock_add' si lo añades al enum
+            person: validatedBy, // Quién añade el stock
+            validatedBy: validatedBy, 
+            notes: notes || `Stock añadido: +${quantity}`,
+            quantity: quantity,
+        });
+        await history.save();
+        
+        res.json({ 
+            success: true, 
+            message: `Stock de ${updatedItem.name} actualizado. Nuevo stock: ${updatedItem.stock}.`, 
+            item: updatedItem 
+        });
+        
+    } catch (error) {
+        console.error("Error en /api/stock/add:", error.message);
+        res.status(500).json({ success: false, error: 'Error interno del servidor. ' + error.message });
+    }
+});
+
 
 // POST /api/scan - Escanear QR
 app.post('/api/scan', async (req, res) => {
