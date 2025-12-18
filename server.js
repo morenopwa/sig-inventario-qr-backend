@@ -154,6 +154,71 @@ app.get('/api/items/:qrCode/history', async (req, res) => {
 });
 
 
+// 1. GET /api/frequent-data - Obtener items y personas más frecuentes
+app.get('/api/frequent-data', async (req, res) => {
+    try {
+        const itemStats = await History.aggregate([
+            { $group: { _id: "$itemId", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 10 },
+            { $lookup: { from: 'items', localField: '_id', foreignField: '_id', as: 'details' } }
+        ]);
+
+        const personStats = await History.aggregate([
+            { $group: { _id: "$person", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 10 }
+        ]);
+
+        res.json({
+            items: itemStats.map(i => ({ name: i.details[0]?.name, id: i._id })),
+            people: personStats.map(p => p._id)
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. PUT /api/history/:id - Editar una transacción
+app.put('/api/history/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { cantidad, itemName, persona, notes } = req.body;
+
+        const record = await History.findById(id);
+        if (!record) return res.status(404).json({ message: "Registro no encontrado" });
+
+        // Aquí podrías añadir lógica para revertir el stock anterior y aplicar el nuevo
+        // Por ahora, actualizamos los datos del historial
+        record.quantity = cantidad;
+        record.person = persona;
+        record.notes = notes || record.notes;
+        await record.save();
+
+        res.json({ success: true, message: "Registro actualizado" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3. DELETE /api/history/:id - Eliminar transacción (Revierte stock)
+app.delete('/api/history/:id', async (req, res) => {
+    try {
+        const record = await History.findByIdAndDelete(req.params.id);
+        if (!record) return res.status(404).json({ message: "No se encontró el registro" });
+        
+        // Lógica opcional: Devolver el stock si fue una salida
+        if (record.action === 'borrow' || record.action === 'consumption') {
+            await Item.findByIdAndUpdate(record.itemId, { $inc: { stock: record.quantity } });
+        }
+
+        res.json({ success: true, message: "Registro eliminado y stock revertido" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 // POST /api/items - Registrar nuevo ítem (Soporta registro por Voz)
 app.post('/api/items', async (req, res) => {
     try {
@@ -551,6 +616,95 @@ app.delete('/api/items/:id', async (req, res) => {
         res.status(500).json({ message: 'Error interno del servidor al eliminar el ítem.' });
     }
 });
+
+
+// GET: Obtener items y personas frecuentes (para los botones de atajo)
+app.get('/api/frequent-data', async (req, res) => {
+    try {
+        // Agregación para contar ítems más usados
+        const itemStats = await History.aggregate([
+            { $group: { _id: "$itemId", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 8 }
+        ]);
+        // Agregación para personas más frecuentes
+        const personStats = await History.aggregate([
+            { $group: { _id: "$person", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 10 }
+        ]);
+
+        // Poblar los nombres de los items
+        const populatedItems = await Item.find({ 
+            _id: { $in: itemStats.map(i => i._id) } 
+        }, 'name qrCode');
+
+        res.json({
+            items: populatedItems,
+            people: personStats.map(p => p._id)
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Eliminar un registro del historial (y revertir stock)
+app.delete('/api/history/:id', async (req, res) => {
+    try {
+        const historyRecord = await History.findByIdAndDelete(req.params.id);
+        if (!historyRecord) return res.status(404).json({ message: "No encontrado" });
+
+        // Si fue una salida, devolvemos el stock al inventario
+        if (historyRecord.action === 'borrow' || historyRecord.action === 'consumption') {
+            await Item.findByIdAndUpdate(historyRecord.itemId, { 
+                $inc: { stock: historyRecord.quantity } 
+            });
+        }
+        res.json({ success: true, message: "Registro eliminado y stock restaurado" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Obtener items y personas frecuentes para los botones de atajo
+app.get('/api/frequent-data', async (req, res) => {
+  try {
+    const itemStats = await History.aggregate([
+      { $group: { _id: "$itemId", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 8 }
+    ]);
+    
+    const personStats = await History.aggregate([
+      { $group: { _id: "$person", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+
+    const populatedItems = await Item.find({ _id: { $in: itemStats.map(i => i._id) } }, 'name');
+    res.json({
+      items: populatedItems,
+      people: personStats.map(p => p._id)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Eliminar un registro y devolver stock
+app.delete('/api/history/:id', async (req, res) => {
+  try {
+    const record = await History.findByIdAndDelete(req.params.id);
+    if (record && (record.action === 'borrow' || record.action === 'consumption')) {
+      await Item.findByIdAndUpdate(record.itemId, { $inc: { stock: record.quantity } });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 
 // ---------------------------------------------------------------------
 // 6. CONEXIÓN Y SERVIDOR
