@@ -1,53 +1,85 @@
-// --- RUTAS PARA EL FRONTEND ---
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const app = express();
 
-// 1. Registrar transacciones (La que te da el error 404)
-app.post('/api/transactions', async (req, res) => {
-  try {
-    const { cantidad, itemName, persona, tipo, timestamp } = req.body;
-    
-    // Guardar el registro del movimiento
-    const transaction = new Transaction({
-      cantidad,
-      itemName: itemName.toUpperCase(),
-      persona,
-      tipo,
-      timestamp
-    });
-    await transaction.save();
+app.use(cors());
+app.use(express.json());
 
-    // ACTUALIZACIÓN DE INVENTARIO AUTOMÁTICA
-    // Si es ingreso suma, si es salida resta
-    const valorCambio = tipo === 'ingreso' ? cantidad : -cantidad;
-    
-    await Inventory.findOneAndUpdate(
-      { name: itemName.toUpperCase() },
-      { $inc: { stock: valorCambio } },
-      { upsert: true } // Si el producto no existe, lo crea
-    );
-
-    res.status(201).json(transaction);
-  } catch (error) {
-    res.status(500).json({ message: "Error al guardar", error });
-  }
+// IMPORTANTE: Definir el esquema para los movimientos
+const TransactionSchema = new mongoose.Schema({
+  cantidad: Number,
+  itemName: String,
+  persona: String,
+  tipo: String, // 'ingreso' o 'salida'
+  timestamp: String
 });
+const Transaction = mongoose.model('Transaction', TransactionSchema);
 
-// 2. Obtener el inventario (Para el cuadro de saldos)
+// Esquema para el inventario (Stock actual)
+const InventorySchema = new mongoose.Schema({
+  name: { type: String, unique: true },
+  stock: Number
+});
+const Inventory = mongoose.model('Inventory', InventorySchema);
+
+// --- RUTAS QUE EL FRONTEND ESTÁ BUSCANDO (404 SOLUCIÓN) ---
+
+// 1. Obtener Inventario Completo
 app.get('/api/inventory', async (req, res) => {
   try {
     const items = await Inventory.find();
     res.json(items);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 3. Datos para los botones de atajo
+// 2. Registrar Transacción y Actualizar Stock automáticamente
+// LA RUTA DEBE EMPEZAR CON /api
+app.post('/api/transactions', async (req, res) => {
+  try {
+    const { cantidad, itemName, persona, tipo, timestamp } = req.body;
+    
+    // 1. Guardar el movimiento
+    const newTransaction = new Transaction({ 
+        cantidad, 
+        itemName: itemName.toUpperCase(), 
+        persona, 
+        tipo, 
+        timestamp 
+    });
+    await newTransaction.save();
+
+    // 2. Actualizar el stock en la colección de Inventario
+    const factor = tipo === 'ingreso' ? cantidad : -cantidad;
+    await Inventory.findOneAndUpdate(
+      { name: itemName.toUpperCase() },
+      { $inc: { stock: factor } },
+      { upsert: true } // Si no existe el producto, lo crea
+    );
+
+    res.status(201).json(newTransaction);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al registrar" });
+  }
+}); 
+
+// 3. Ruta para los botones de atajo (Items y Personas frecuentes)
 app.get('/api/frequent-data', async (req, res) => {
   try {
     const items = await Inventory.find().select('name');
-    const people = await Transaction.distinct('persona');
-    res.json({ items, people });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const transactions = await Transaction.find().distinct('persona');
+    
+    res.json({
+      items: items.map(i => ({ _id: i._id, name: i.name })),
+      people: transactions
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
+
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
