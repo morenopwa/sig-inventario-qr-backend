@@ -105,9 +105,11 @@ const getNextQrCode = async () => {
 // Obtener datos para los botones del Chat
 app.get('/api/frequent-data', async (req, res) => {
     try {
-        // Obtenemos los últimos 10 items y trabajadores registrados para los atajos
-        const items = await Item.find({}, 'name').limit(10);
-        const workers = await Worker.find({}, 'name').limit(10);
+        // Obtenemos los 10 items con más stock o más recientes
+        const items = await Item.find({}, 'name').sort({ updatedAt: -1 }).limit(10);
+        
+        // Obtenemos los nombres de trabajadores
+        const workers = await Worker.find({}, 'name').limit(15);
 
         res.json({
             items: items, 
@@ -120,12 +122,14 @@ app.get('/api/frequent-data', async (req, res) => {
 
 // Obtener historial del Chat
 app.get('/api/transactions', async (req, res) => {
-    try {
-        const transactions = await Transaction.find().sort({ _id: -1 }).limit(30);
-        res.json(transactions);
-    } catch (err) {
-        res.status(500).json({ error: "Error al obtener historial" });
-    }
+  try {
+    // 1. Buscamos las últimas 30 transacciones
+    // 2. Usamos sort({ createdAt: 1 }) para que la más vieja sea la [0] y la más nueva la última
+    const transactions = await Transaction.find().sort({ _id: 1 }).limit(50);
+    res.json(transactions);
+  } catch (err) {
+    res.status(500).json({ error: "Error al obtener historial" });
+  }
 });
 
 // Guardar desde el Chat
