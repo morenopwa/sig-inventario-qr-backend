@@ -130,23 +130,41 @@ app.get('/api/transactions', async (req, res) => {
 
 // Guardar desde el Chat
 app.post('/api/transactions', async (req, res) => {
-    try {
-        const { cantidad, itemName, persona, tipo, timestamp } = req.body;
-        const newTransaction = new Transaction({ 
-            cantidad, itemName: itemName.toUpperCase(), persona, tipo, timestamp 
-        });
-        await newTransaction.save();
+  try {
+    const { cantidad, itemName, persona, tipo, timestamp } = req.body;
+    const nombreLimpio = itemName.trim().toUpperCase();
 
-        const factor = tipo === 'ingreso' ? cantidad : -cantidad;
-        await Inventory.findOneAndUpdate(
-            { name: itemName.toUpperCase() },
-            { $inc: { stock: factor } },
-            { upsert: true }
-        );
-        res.status(201).json(newTransaction);
-    } catch (err) {
-        res.status(500).json({ error: "Error al registrar" });
+    // 1. Guardamos en la tabla de transacciones del chat
+    const newTransaction = new Transaction({ 
+        cantidad, itemName: nombreLimpio, persona, tipo, timestamp 
+    });
+    await newTransaction.save();
+
+    // 2. ACTUALIZACIÓN CRÍTICA: Buscamos en 'Item' (la misma del QR)
+    const factor = tipo === 'ingreso' ? cantidad : -cantidad;
+    
+    const itemActualizado = await Item.findOneAndUpdate(
+      { name: nombreLimpio }, // Busca por nombre en mayúsculas
+      { $inc: { stock: factor } },
+      { new: true } // No uses upsert aquí si quieres que solo sume a lo que ya existe
+    );
+
+    // 3. También registramos en el Historial general para que aparezca en los reportes QR
+    if (itemActualizado) {
+        const newHistory = new History({
+            itemId: itemActualizado._id,
+            action: tipo === 'ingreso' ? 'register' : 'consumption',
+            person: persona,
+            quantity: cantidad,
+            notes: `Movimiento desde Chat: ${tipo}`
+        });
+        await newHistory.save();
     }
+
+    res.status(201).json(newTransaction);
+  } catch (err) {
+    res.status(500).json({ error: "Error al registrar" });
+  }
 });
 
 // ---------------------------------------------------------------------
