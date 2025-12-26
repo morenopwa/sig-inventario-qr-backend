@@ -105,18 +105,17 @@ const getNextQrCode = async () => {
 // Obtener datos para los botones del Chat
 app.get('/api/frequent-data', async (req, res) => {
     try {
-        // Obtenemos los 10 items con más stock o más recientes
-        const items = await Item.find({}, 'name').sort({ updatedAt: -1 }).limit(10);
-        
-        // Obtenemos los nombres de trabajadores
-        const workers = await Worker.find({}, 'name').limit(15);
+        // Sacamos los items más usados de la tabla Transaction (lo que escribes en el chat)
+        const items = await Transaction.distinct('itemName');
+        const people = await Transaction.distinct('persona');
 
+        // Limitamos a los últimos 10 para no llenar la pantalla
         res.json({
-            items: items, 
-            people: workers.map(w => w.name)
+            items: items.slice(-10).map(name => ({ name })), 
+            people: people.slice(-10)
         });
     } catch (error) {
-        res.status(500).json({ items: [], people: [] });
+        res.json({ items: [], people: [] });
     }
 });
 
@@ -139,35 +138,42 @@ app.post('/api/transactions', async (req, res) => {
     const nombreLimpio = itemName.trim().toUpperCase();
 
     // 1. Guardamos en la tabla de transacciones del chat
-    const newTransaction = new Transaction({ 
+    const newTx = new Transaction({ 
         cantidad, itemName: nombreLimpio, persona, tipo, timestamp 
     });
-    await newTransaction.save();
+    await newTx.save();
 
-    // 2. ACTUALIZACIÓN CRÍTICA: Buscamos en 'Item' (la misma del QR)
+    // 2. ACTUALIZACIÓN DE STOCK CON AUTO-CREACIÓN (Upsert)
+    // Buscamos en la colección 'Item' (la del inventario general)
     const factor = tipo === 'ingreso' ? cantidad : -cantidad;
     
-    const itemActualizado = await Item.findOneAndUpdate(
-      { name: nombreLimpio }, // Busca por nombre en mayúsculas
-      { $inc: { stock: factor } },
-      { new: true } // No uses upsert aquí si quieres que solo sume a lo que ya existe
+    const item = await Item.findOneAndUpdate(
+      { name: nombreLimpio },
+      { 
+        $inc: { stock: factor },
+        $setOnInsert: { 
+          qrCode: `V-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, // QR genérico para items de voz
+          category: 'General',
+          isConsumible: true,
+          status: 'available'
+        }
+      },
+      { upsert: true, new: true } // Si no existe, lo crea.
     );
 
-    // 3. También registramos en el Historial general para que aparezca en los reportes QR
-    if (itemActualizado) {
-        const newHistory = new History({
-            itemId: itemActualizado._id,
-            action: tipo === 'ingreso' ? 'register' : 'consumption',
-            person: persona,
-            quantity: cantidad,
-            notes: `Movimiento desde Chat: ${tipo}`
-        });
-        await newHistory.save();
-    }
+    // 3. Registrar en Historial para los reportes
+    await new History({
+        itemId: item._id,
+        action: tipo === 'ingreso' ? 'register' : 'consumption',
+        person: persona,
+        quantity: cantidad,
+        notes: "Registro automático vía Chat"
+    }).save();
 
-    res.status(201).json(newTransaction);
+    res.status(201).json(newTx);
   } catch (err) {
-    res.status(500).json({ error: "Error al registrar" });
+    console.error(err);
+    res.status(500).json({ error: "Error en sincronización" });
   }
 });
 
