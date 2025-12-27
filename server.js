@@ -105,18 +105,42 @@ const getNextQrCode = async () => {
 // Obtener datos para los botones del Chat
 app.get('/api/frequent-data', async (req, res) => {
     try {
-        // Sacamos los items más usados de la tabla Transaction (lo que escribes en el chat)
-        const items = await Transaction.distinct('itemName');
-        const people = await Transaction.distinct('persona');
+        // Buscamos las últimas transacciones para determinar qué se usó recientemente
+        const recentTxs = await Transaction.find()
+            .sort({ timestamp: -1 }) // Ordenar por lo más nuevo primero
+            .limit(100);
 
-        // Limitamos a los últimos 10 para no llenar la pantalla
+        // Extraer nombres de ítems y personas sin repetir, manteniendo el orden de aparición
+        const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
+        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
+
         res.json({
-            items: items.slice(-10).map(name => ({ name })), 
-            people: people.slice(-10)
+            items: items.map(name => ({ name })),
+            people: people
         });
     } catch (error) {
-        res.json({ items: [], people: [] });
+        res.status(500).json({ items: [], people: [] });
     }
+});
+
+// Eliminar un ítem de los atajos (borra sus registros de transacciones)
+app.delete('/api/frequent-data/item/:name', async (req, res) => {
+  try {
+    await Transaction.deleteMany({ itemName: req.params.name.toUpperCase() });
+    res.json({ success: true, message: "Atajo de ítem eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Eliminar una persona de los atajos
+app.delete('/api/frequent-data/person/:name', async (req, res) => {
+  try {
+    await Transaction.deleteMany({ persona: req.params.name });
+    res.json({ success: true, message: "Atajo de persona eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Obtener historial del Chat
