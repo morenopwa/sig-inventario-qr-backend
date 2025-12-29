@@ -184,21 +184,47 @@ app.post('/api/transactions', async (req, res) => {
     try {
         const { cantidad, itemName, persona, tipo, timestamp } = req.body;
         const nombreLimpio = itemName.trim().toUpperCase();
-        const newTx = new Transaction({ cantidad, itemName: nombreLimpio, persona, tipo, timestamp });
+        
+        // 1. Guardamos la transacción para el historial general
+        const newTx = new Transaction({ 
+            cantidad: Number(cantidad), 
+            itemName: nombreLimpio, 
+            persona, 
+            tipo, 
+            timestamp 
+        });
         await newTx.save();
 
-        const factor = tipo === 'ingreso' ? cantidad : -cantidad;
-        const item = await Item.findOneAndUpdate(
-            { name: nombreLimpio },
+        // 2. Calculamos el factor (Ingreso suma, Salida resta)
+        const factor = (tipo.toLowerCase() === 'ingreso' || tipo.toLowerCase() === 'entrada') 
+            ? Number(cantidad) 
+            : -Number(cantidad);
+
+        // 3. Buscamos el ítem por nombre (ignora mayúsculas/minúsculas) y actualizamos stock
+        const itemActualizado = await Item.findOneAndUpdate(
+            { name: { $regex: new RegExp(`^${nombreLimpio}$`, "i") } },
             { 
                 $inc: { stock: factor },
-                $push: { history: { action: tipo, quantity: cantidad, user: persona, notes: "Vía Chat" } },
-                $setOnInsert: { qrCode: `E-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, category: 'General', isConsumible: true, status: 'available' } 
+                $push: { 
+                    history: { 
+                        action: tipo, 
+                        quantity: cantidad, 
+                        user: persona, 
+                        notes: "Registro automático" 
+                    } 
+                }
             },
-            { upsert: true, new: true }
+            { new: true } // Nos devuelve el ítem tras actualizarlo
         );
-        res.status(201).json(newTx);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+
+        if (!itemActualizado) {
+            return res.status(404).json({ error: "El ítem no existe en el inventario. Debes crearlo primero." });
+        }
+
+        res.status(201).json({ success: true, item: itemActualizado });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.get('/api/items', async (req, res) => {
@@ -254,6 +280,19 @@ app.post('/api/attendance/scan', async (req, res) => {
         res.json({ success: true, message: `${action} registrada`, workerName: worker.name });
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
+
+
+// Ruta para eliminar un ÍTEM del inventario
+app.delete('/api/items/:id', async (req, res) => {
+    try {
+        await Item.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: "Ítem eliminado" });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 
 // ---------------------------------------------------------------------
 // CONEXIÓN
