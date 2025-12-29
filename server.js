@@ -121,6 +121,35 @@ app.get('/api/frequent-data', async (req, res) => {
     } catch (error) { res.status(500).json({ items: [], people: [] }); }
 });
 
+app.get('/api/transactions', async (req, res) => {
+    try {
+        // Buscamos en la colección de Items todos los historiales
+        const items = await Item.find();
+        let allTransactions = [];
+
+        items.forEach(item => {
+            item.history.forEach(h => {
+                allTransactions.push({
+                    item: item.name,
+                    qrCode: item.qrCode,
+                    action: h.action, // 'IN', 'OUT', 'REGISTER'
+                    quantity: h.quantity,
+                    user: h.user || 'Almacén',
+                    date: h.timestamp,
+                    notes: h.notes
+                });
+            });
+        });
+
+        // Ordenar por fecha (la más reciente primero)
+        allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        res.json(allTransactions);
+    } catch (error) {
+        res.status(500).json({ message: "Error al obtener transacciones", error });
+    }
+});
+
 app.post('/api/transactions', async (req, res) => {
     try {
         const { cantidad, itemName, persona, tipo, timestamp } = req.body;
