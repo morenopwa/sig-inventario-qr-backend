@@ -224,6 +224,26 @@ app.post('/api/attendance/scan', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// Ruta para sugerencias rápidas en el Chat
+app.get('/api/frequent-data', async (req, res) => {
+    try {
+        // Obtenemos los últimos 100 registros de la colección Transaction
+        const recentTxs = await Transaction.find().sort({ _id: -1 }).limit(100);
+        
+        // Extraemos nombres únicos de items y personas
+        const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
+        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
+        
+        res.json({ 
+            items: items.map(name => ({ name })), 
+            people 
+        });
+    } catch (error) {
+        // Si no hay transacciones aún, devolvemos listas vacías para que el Front no falle
+        res.json({ items: [], people: [] });
+    }
+});
+
 // ---------------------------------------------------------------------
 // CONEXIÓN Y ARRANQUE
 // ---------------------------------------------------------------------
