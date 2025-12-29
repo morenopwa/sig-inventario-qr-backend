@@ -122,32 +122,38 @@ app.get('/api/frequent-data', async (req, res) => {
 });
 
 app.get('/api/transactions', async (req, res) => {
-    try {
-        // Buscamos en la colección de Items todos los historiales
-        const items = await Item.find();
-        let allTransactions = [];
+  try {
+    const Item = require('./models/Item'); // Asegúrate de que la ruta sea correcta
+    const items = await Item.find();
+    
+    let allHistory = [];
 
-        items.forEach(item => {
-            item.history.forEach(h => {
-                allTransactions.push({
-                    item: item.name,
-                    qrCode: item.qrCode,
-                    action: h.action, // 'IN', 'OUT', 'REGISTER'
-                    quantity: h.quantity,
-                    user: h.user || 'Almacén',
-                    date: h.timestamp,
-                    notes: h.notes
-                });
-            });
+    items.forEach(item => {
+      if (item.history && item.history.length > 0) {
+        item.history.forEach(h => {
+          allHistory.push({
+            _id: h._id,
+            item: item.name,
+            qrCode: item.qrCode,
+            action: h.action,     // Ejemplo: "ENTRADA", "SALIDA"
+            quantity: h.quantity,
+            user: h.user || 'Sistema',
+            createdAt: h.timestamp || h.date // Usamos el campo que tengas para la fecha
+          });
         });
+      }
+    });
 
-        // Ordenar por fecha (la más reciente primero)
-        allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Ordenar por fecha más reciente
+    allHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        res.json(allTransactions);
-    } catch (error) {
-        res.status(500).json({ message: "Error al obtener transacciones", error });
-    }
+    // Opcional: limitar a las últimas 50 para no saturar al Chat
+    res.json(allHistory.slice(0, 50));
+
+  } catch (err) {
+    console.error("Error en /api/transactions:", err);
+    res.status(500).json({ error: "Error al procesar el historial unificado", details: err.message });
+  }
 });
 
 app.post('/api/transactions', async (req, res) => {
