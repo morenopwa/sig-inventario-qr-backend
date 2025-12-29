@@ -183,24 +183,19 @@ app.get('/api/transactions', async (req, res) => {
 app.post('/api/transactions', async (req, res) => {
     try {
         const { cantidad, itemName, persona, tipo, timestamp } = req.body;
-        const nombreLimpio = itemName.trim().toUpperCase();
         
-        // 1. Guardamos la transacción para el historial general
-        const newTx = new Transaction({ 
-            cantidad: Number(cantidad), 
-            itemName: nombreLimpio, 
-            persona, 
-            tipo, 
-            timestamp 
-        });
-        await newTx.save();
+        // 1. Limpieza extrema de datos
+        const nombreLimpio = itemName.trim();
+        const numCantidad = parseInt(cantidad); // Forzamos a que sea número
+        
+        console.log(`Buscando item: "${nombreLimpio}" para ${tipo} de ${numCantidad} unidades.`);
 
-        // 2. Calculamos el factor (Ingreso suma, Salida resta)
+        // 2. Definir si suma o resta
         const factor = (tipo.toLowerCase() === 'ingreso' || tipo.toLowerCase() === 'entrada') 
-            ? Number(cantidad) 
-            : -Number(cantidad);
+            ? numCantidad 
+            : -numCantidad;
 
-        // 3. Buscamos el ítem por nombre (ignora mayúsculas/minúsculas) y actualizamos stock
+        // 3. Actualización con protección
         const itemActualizado = await Item.findOneAndUpdate(
             { name: { $regex: new RegExp(`^${nombreLimpio}$`, "i") } },
             { 
@@ -208,21 +203,36 @@ app.post('/api/transactions', async (req, res) => {
                 $push: { 
                     history: { 
                         action: tipo, 
-                        quantity: cantidad, 
+                        quantity: numCantidad, 
                         user: persona, 
-                        notes: "Registro automático" 
+                        timestamp: new Date(),
+                        notes: "Movimiento vía Chat/Registro" 
                     } 
                 }
             },
-            { new: true } // Nos devuelve el ítem tras actualizarlo
+            { new: true } // Esto devuelve el item ya actualizado
         );
 
         if (!itemActualizado) {
-            return res.status(404).json({ error: "El ítem no existe en el inventario. Debes crearlo primero." });
+            console.error(`❌ El item "${nombreLimpio}" no se encontró.`);
+            return res.status(404).json({ error: "Item no encontrado en el inventario." });
         }
 
+        // 4. Guardar en la colección global de transacciones
+        const newTx = new Transaction({ 
+            cantidad: numCantidad, 
+            itemName: itemActualizado.name, // Usamos el nombre real de la DB
+            persona, 
+            tipo, 
+            timestamp: new Date().toISOString() 
+        });
+        await newTx.save();
+
+        console.log(`✅ Stock actualizado. Nuevo stock de ${itemActualizado.name}: ${itemActualizado.stock}`);
         res.status(201).json({ success: true, item: itemActualizado });
+
     } catch (err) {
+        console.error("🔴 Error en transacción:", err);
         res.status(500).json({ error: err.message });
     }
 });
