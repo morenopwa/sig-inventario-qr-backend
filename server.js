@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // ---------------------------------------------------------------------
-// MODELOS (Esquemas integrados para evitar errores de importación)
+// MODELOS
 // ---------------------------------------------------------------------
 
 const workerSchema = new mongoose.Schema({
@@ -21,12 +21,12 @@ const workerSchema = new mongoose.Schema({
     name: { type: String, required: true },
     lastName: { type: String, required: true },
     dni: { type: String, required: true, unique: true },
-    phone: { type: Number }, 
+    phone: { type: String }, 
     email: { type: String },
     password: { type: String, default: '1234' },
     role: { 
         type: String, 
-        enum: ['SuperAdmin', 'Admin', 'Almacenero', 'Calderero', 'Maniobrista', 'Residente', 'Prevencionista', 'Soldador', 'Operario'], 
+        enum: ['SuperAdmin', 'Admin', 'Almacenero', 'Calderero', 'Maniobrista', 'Residente', 'Prevencionista', 'Soldador', 'Operario', 'Maestro'], 
         default: 'Operario' 
     },
     tarifaPactada: { type: Number, default: 0 },
@@ -53,7 +53,6 @@ const itemSchema = new mongoose.Schema({
     currentHolder: { type: String, default: null },
     stock: { type: Number, default: 1 },
     isConsumible: { type: Boolean, default: false },
-    // El historial interno permite que el Chat analice movimientos
     history: [{
         action: String,
         quantity: Number,
@@ -65,7 +64,6 @@ const itemSchema = new mongoose.Schema({
 
 const Item = mongoose.model('Item', itemSchema);
 
-// Modelos auxiliares para registros rápidos y analítica
 const History = mongoose.model('History', new mongoose.Schema({
     itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
     action: String,
@@ -96,17 +94,53 @@ const getNextQrCode = async () => {
 };
 
 // ---------------------------------------------------------------------
-// RUTAS DE INVENTARIO Y CHAT
+// RUTAS SUPERADMIN & GESTIÓN USUARIOS
 // ---------------------------------------------------------------------
 
-// El Chat llama a esta ruta para "aprender" qué ha pasado
+app.put('/api/superadmin/toggle-permission', async (req, res) => {
+    const { userId, permissionKey, newValue } = req.body;
+    try {
+        const updateField = {};
+        updateField[`permissions.${permissionKey}`] = newValue;
+        await Worker.findByIdAndUpdate(userId, { $set: updateField });
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/superadmin/change-role', async (req, res) => {
+    const { userId, newRole } = req.body;
+    try {
+        await Worker.findByIdAndUpdate(userId, { role: newRole });
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+    try {
+        await Worker.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// ---------------------------------------------------------------------
+// RUTAS INVENTARIO & CHAT
+// ---------------------------------------------------------------------
+
+app.get('/api/frequent-data', async (req, res) => {
+    try {
+        const recentTxs = await Transaction.find().sort({ _id: -1 }).limit(100);
+        const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
+        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
+        res.json({ items: items.map(name => ({ name })), people });
+    } catch (error) { res.json({ items: [], people: [] }); }
+});
+
 app.get('/api/transactions', async (req, res) => {
     try {
         const items = await Item.find();
         let allHistory = [];
-
         items.forEach(item => {
-            if (item.history && item.history.length > 0) {
+            if (item.history) {
                 item.history.forEach(h => {
                     allHistory.push({
                         item: item.name,
@@ -114,25 +148,20 @@ app.get('/api/transactions', async (req, res) => {
                         action: h.action,
                         quantity: h.quantity,
                         user: h.user || 'Sistema',
-                        createdAt: h.timestamp || h.date
+                        createdAt: h.timestamp
                     });
                 });
             }
         });
-
         allHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         res.json(allHistory.slice(0, 50));
-    } catch (err) {
-        res.status(500).json({ error: "Error en historial", details: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Registrar transacciones desde el Chat IA
 app.post('/api/transactions', async (req, res) => {
     try {
         const { cantidad, itemName, persona, tipo, timestamp } = req.body;
         const nombreLimpio = itemName.trim().toUpperCase();
-        
         const newTx = new Transaction({ cantidad, itemName: nombreLimpio, persona, tipo, timestamp });
         await newTx.save();
 
@@ -140,13 +169,12 @@ app.post('/api/transactions', async (req, res) => {
         const item = await Item.findOneAndUpdate(
             { name: nombreLimpio },
             { 
-                $inc: { stock: factor }, 
+                $inc: { stock: factor },
                 $push: { history: { action: tipo, quantity: cantidad, user: persona, notes: "Vía Chat" } },
                 $setOnInsert: { qrCode: `E-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, category: 'General', isConsumible: true, status: 'available' } 
             },
             { upsert: true, new: true }
         );
-
         res.status(201).json(newTx);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -160,27 +188,21 @@ app.post('/api/items', async (req, res) => {
     try {
         const { name, category, description, registeredBy, isConsumible, stock } = req.body;
         const qrCode = await getNextQrCode();
-        const newItem = new Item({ 
-            qrCode, name, category, description, registeredBy, 
-            isConsumible, stock: isConsumible ? parseInt(stock) : 1,
-            history: [{ action: 'register', quantity: stock, user: registeredBy, notes: 'Registro inicial' }]
-        });
+        const newItem = new Item({ qrCode, name, category, description, registeredBy, isConsumible, stock, history: [{ action: 'register', quantity: stock, user: registeredBy }] });
         await newItem.save();
         res.json({ item: newItem });
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // ---------------------------------------------------------------------
-// RUTAS DE USUARIOS Y ASISTENCIA
+// RUTAS LOGIN & PERSONAL
 // ---------------------------------------------------------------------
 
 app.post('/api/login', async (req, res) => {
     const { name, password } = req.body;
     try {
         const worker = await Worker.findOne({ name });
-        if (!worker || worker.password !== password) {
-            return res.status(401).json({ success: false, message: "Credenciales inválidas" });
-        }
+        if (!worker || worker.password !== password) return res.status(401).json({ success: false });
         res.json({ success: true, user: worker });
     } catch (err) { res.status(500).json({ success: false }); }
 });
@@ -192,64 +214,31 @@ app.get('/api/workers', async (req, res) => {
 
 app.post('/api/workers/register', async (req, res) => {
     try {
-        const { name, lastName, dni, phone, email, password, role } = req.body;
         const qrCode = `W-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
-        const newWorker = new Worker({ qrCode, name, lastName, dni, phone, email, password, role });
+        const newWorker = new Worker({ ...req.body, qrCode });
         await newWorker.save();
         res.json({ success: true, worker: newWorker });
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
 app.post('/api/attendance/scan', async (req, res) => {
-    const { qrCode, notes } = req.body;
     try {
-        const worker = await Worker.findOne({ qrCode });
-        if (!worker) return res.status(404).json({ message: "Trabajador no encontrado" });
-
-        const lastRecord = worker.attendance[worker.attendance.length - 1];
-        const action = (!lastRecord || lastRecord.action === 'OUT') ? 'IN' : 'OUT';
-
+        const worker = await Worker.findOne({ qrCode: req.body.qrCode });
+        if (!worker) return res.status(404).json({ message: "No encontrado" });
+        const last = worker.attendance[worker.attendance.length - 1];
+        const action = (!last || last.action === 'OUT') ? 'IN' : 'OUT';
         worker.attendance.push({ action, timestamp: new Date() });
         await worker.save();
-
-        const diasAsistidos = worker.attendance.filter(a => a.action === 'IN').length;
-        const totalAcu = diasAsistidos * (worker.tarifaPactada || 0);
-
-        res.json({ 
-            success: true, 
-            message: `${action === 'IN' ? 'Entrada' : 'Salida'} registrada`,
-            workerName: worker.name,
-            totalAcumulado: totalAcu
-        });
+        res.json({ success: true, message: `${action} registrada`, workerName: worker.name });
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Ruta para sugerencias rápidas en el Chat
-app.get('/api/frequent-data', async (req, res) => {
-    try {
-        // Obtenemos los últimos 100 registros de la colección Transaction
-        const recentTxs = await Transaction.find().sort({ _id: -1 }).limit(100);
-        
-        // Extraemos nombres únicos de items y personas
-        const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
-        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
-        
-        res.json({ 
-            items: items.map(name => ({ name })), 
-            people 
-        });
-    } catch (error) {
-        // Si no hay transacciones aún, devolvemos listas vacías para que el Front no falle
-        res.json({ items: [], people: [] });
-    }
-});
-
 // ---------------------------------------------------------------------
-// CONEXIÓN Y ARRANQUE
+// CONEXIÓN
 // ---------------------------------------------------------------------
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
-        console.log('✅ Base de datos conectada con éxito');
-        app.listen(PORT, HOST, () => console.log(`🔊 Servidor corriendo en http://${HOST}:${PORT}`));
+        console.log('✅ Base de datos conectada');
+        app.listen(PORT, HOST, () => console.log(`🔊 Puerto ${PORT}`));
     })
-    .catch(err => console.error('❌ Error de conexión:', err));
+    .catch(err => console.error('❌ Error:', err));
