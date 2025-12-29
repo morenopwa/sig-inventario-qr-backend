@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // ---------------------------------------------------------------------
-// MODELOS
+// MODELOS (Esquemas integrados para evitar errores de importación)
 // ---------------------------------------------------------------------
 
 const workerSchema = new mongoose.Schema({
@@ -24,7 +24,6 @@ const workerSchema = new mongoose.Schema({
     phone: { type: Number }, 
     email: { type: String },
     password: { type: String, default: '1234' },
-    photo: { type: String, default: '' },
     role: { 
         type: String, 
         enum: ['SuperAdmin', 'Admin', 'Almacenero', 'Calderero', 'Maniobrista', 'Residente', 'Prevencionista', 'Soldador', 'Operario'], 
@@ -52,25 +51,35 @@ const itemSchema = new mongoose.Schema({
     description: { type: String, default: 'Sin descripción' },
     status: { type: String, enum: ['new', 'available', 'borrowed', 'repair'], default: 'new' },
     currentHolder: { type: String, default: null },
-    loanDate: { type: Date, default: null },
-    registeredBy: String,
-    isConsumible: { type: Boolean, default: false }, 
-    stock: { type: Number, default: 1 }
+    stock: { type: Number, default: 1 },
+    isConsumible: { type: Boolean, default: false },
+    // El historial interno permite que el Chat analice movimientos
+    history: [{
+        action: String,
+        quantity: Number,
+        user: String,
+        timestamp: { type: Date, default: Date.now },
+        notes: String
+    }]
 }, { timestamps: true });
 
 const Item = mongoose.model('Item', itemSchema);
 
+// Modelos auxiliares para registros rápidos y analítica
 const History = mongoose.model('History', new mongoose.Schema({
-    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
-    action: { type: String, enum: ['borrow', 'return', 'register', 'repair', 'consumption'], required: true },
-    person: { type: String, required: true },
-    validatedBy: { type: String, default: 'Sistema' },
-    quantity: { type: Number, default: 1 },
-    notes: { type: String, default: '' },
+    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
+    action: String,
+    person: String,
+    quantity: Number,
+    notes: String
 }, { timestamps: true }));
 
 const Transaction = mongoose.model('Transaction', new mongoose.Schema({
-    cantidad: Number, itemName: String, persona: String, tipo: String, timestamp: String
+    cantidad: Number, 
+    itemName: String, 
+    persona: String, 
+    tipo: String, 
+    timestamp: String
 }));
 
 // ---------------------------------------------------------------------
@@ -87,90 +96,57 @@ const getNextQrCode = async () => {
 };
 
 // ---------------------------------------------------------------------
-// RUTAS DE SUPERADMIN (Permisos Granulares)
+// RUTAS DE INVENTARIO Y CHAT
 // ---------------------------------------------------------------------
 
-app.put('/api/superadmin/toggle-permission', async (req, res) => {
-    const { userId, permissionKey, newValue } = req.body;
-    try {
-        const updateField = {};
-        updateField[`permissions.${permissionKey}`] = newValue;
-        await Worker.findByIdAndUpdate(userId, { $set: updateField });
-        res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-app.put('/api/superadmin/change-role', async (req, res) => {
-    const { userId, newRole } = req.body;
-    try {
-        await Worker.findByIdAndUpdate(userId, { role: newRole });
-        res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-// ---------------------------------------------------------------------
-// RUTAS ORIGINALES REINTEGRADAS
-// ---------------------------------------------------------------------
-
-app.get('/api/frequent-data', async (req, res) => {
-    try {
-        const recentTxs = await Transaction.find().sort({ _id: -1 }).limit(100);
-        const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
-        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
-        res.json({ items: items.map(name => ({ name })), people });
-    } catch (error) { res.status(500).json({ items: [], people: [] }); }
-});
-
+// El Chat llama a esta ruta para "aprender" qué ha pasado
 app.get('/api/transactions', async (req, res) => {
-  try {
-    const Item = require('./models/Item'); // Asegúrate de que la ruta sea correcta
-    const items = await Item.find();
-    
-    let allHistory = [];
+    try {
+        const items = await Item.find();
+        let allHistory = [];
 
-    items.forEach(item => {
-      if (item.history && item.history.length > 0) {
-        item.history.forEach(h => {
-          allHistory.push({
-            _id: h._id,
-            item: item.name,
-            qrCode: item.qrCode,
-            action: h.action,     // Ejemplo: "ENTRADA", "SALIDA"
-            quantity: h.quantity,
-            user: h.user || 'Sistema',
-            createdAt: h.timestamp || h.date // Usamos el campo que tengas para la fecha
-          });
+        items.forEach(item => {
+            if (item.history && item.history.length > 0) {
+                item.history.forEach(h => {
+                    allHistory.push({
+                        item: item.name,
+                        qrCode: item.qrCode,
+                        action: h.action,
+                        quantity: h.quantity,
+                        user: h.user || 'Sistema',
+                        createdAt: h.timestamp || h.date
+                    });
+                });
+            }
         });
-      }
-    });
 
-    // Ordenar por fecha más reciente
-    allHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    // Opcional: limitar a las últimas 50 para no saturar al Chat
-    res.json(allHistory.slice(0, 50));
-
-  } catch (err) {
-    console.error("Error en /api/transactions:", err);
-    res.status(500).json({ error: "Error al procesar el historial unificado", details: err.message });
-  }
+        allHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        res.json(allHistory.slice(0, 50));
+    } catch (err) {
+        res.status(500).json({ error: "Error en historial", details: err.message });
+    }
 });
 
+// Registrar transacciones desde el Chat IA
 app.post('/api/transactions', async (req, res) => {
     try {
         const { cantidad, itemName, persona, tipo, timestamp } = req.body;
         const nombreLimpio = itemName.trim().toUpperCase();
+        
         const newTx = new Transaction({ cantidad, itemName: nombreLimpio, persona, tipo, timestamp });
         await newTx.save();
 
         const factor = tipo === 'ingreso' ? cantidad : -cantidad;
         const item = await Item.findOneAndUpdate(
             { name: nombreLimpio },
-            { $inc: { stock: factor }, $setOnInsert: { qrCode: `E-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, category: 'General', isConsumible: true, status: 'available' } },
+            { 
+                $inc: { stock: factor }, 
+                $push: { history: { action: tipo, quantity: cantidad, user: persona, notes: "Vía Chat" } },
+                $setOnInsert: { qrCode: `E-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, category: 'General', isConsumible: true, status: 'available' } 
+            },
             { upsert: true, new: true }
         );
 
-        await new History({ itemId: item._id, action: tipo === 'ingreso' ? 'register' : 'consumption', person: persona, quantity: cantidad, notes: "Vía Chat" }).save();
         res.status(201).json(newTx);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -184,17 +160,29 @@ app.post('/api/items', async (req, res) => {
     try {
         const { name, category, description, registeredBy, isConsumible, stock } = req.body;
         const qrCode = await getNextQrCode();
-        const newItem = new Item({ qrCode, name, category, description, registeredBy, isConsumible, stock: isConsumible ? parseInt(stock) : 1 });
+        const newItem = new Item({ 
+            qrCode, name, category, description, registeredBy, 
+            isConsumible, stock: isConsumible ? parseInt(stock) : 1,
+            history: [{ action: 'register', quantity: stock, user: registeredBy, notes: 'Registro inicial' }]
+        });
         await newItem.save();
         res.json({ item: newItem });
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// ---------------------------------------------------------------------
+// RUTAS DE USUARIOS Y ASISTENCIA
+// ---------------------------------------------------------------------
+
 app.post('/api/login', async (req, res) => {
     const { name, password } = req.body;
-    const worker = await Worker.findOne({ name });
-    if (!worker || worker.password !== password) return res.status(401).json({ success: false });
-    res.json({ success: true, user: worker });
+    try {
+        const worker = await Worker.findOne({ name });
+        if (!worker || worker.password !== password) {
+            return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+        }
+        res.json({ success: true, user: worker });
+    } catch (err) { res.status(500).json({ success: false }); }
 });
 
 app.get('/api/workers', async (req, res) => {
@@ -212,41 +200,36 @@ app.post('/api/workers/register', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
-
 app.post('/api/attendance/scan', async (req, res) => {
     const { qrCode, notes } = req.body;
     try {
         const worker = await Worker.findOne({ qrCode });
         if (!worker) return res.status(404).json({ message: "Trabajador no encontrado" });
 
-        // Determinar si es IN o OUT basado en el último registro
         const lastRecord = worker.attendance[worker.attendance.length - 1];
         const action = (!lastRecord || lastRecord.action === 'OUT') ? 'IN' : 'OUT';
 
-        // Guardar asistencia
-        worker.attendance.push({ action, timestamp: new Date(), notes });
+        worker.attendance.push({ action, timestamp: new Date() });
         await worker.save();
 
-        // Calcular sueldo acumulado proyectado
         const diasAsistidos = worker.attendance.filter(a => a.action === 'IN').length;
-        const totalAcu = diasAsistidos * worker.tarifaPactada;
+        const totalAcu = diasAsistidos * (worker.tarifaPactada || 0);
 
         res.json({ 
             success: true, 
-            message: `${action === 'IN' ? 'Entrada' : 'Salida'} registrada para ${worker.name}`,
+            message: `${action === 'IN' ? 'Entrada' : 'Salida'} registrada`,
             workerName: worker.name,
             totalAcumulado: totalAcu
         });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // ---------------------------------------------------------------------
-// CONEXIÓN
+// CONEXIÓN Y ARRANQUE
 // ---------------------------------------------------------------------
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ Conectado'))
-    .catch(err => console.error('❌ Error:', err));
-
-app.listen(PORT, HOST, () => console.log(`🔊 Escuchando en puerto ${PORT}`));
+    .then(() => {
+        console.log('✅ Base de datos conectada con éxito');
+        app.listen(PORT, HOST, () => console.log(`🔊 Servidor corriendo en http://${HOST}:${PORT}`));
+    })
+    .catch(err => console.error('❌ Error de conexión:', err));
