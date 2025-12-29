@@ -137,25 +137,47 @@ app.get('/api/frequent-data', async (req, res) => {
 
 app.get('/api/transactions', async (req, res) => {
     try {
+        // Traemos todos los items para sacar su historial interno
         const items = await Item.find();
         let allHistory = [];
+
         items.forEach(item => {
-            if (item.history) {
+            if (item.history && item.history.length > 0) {
                 item.history.forEach(h => {
                     allHistory.push({
-                        item: item.name,
+                        _id: h._id,
+                        itemName: item.name,        // Antes era 'item'
                         qrCode: item.qrCode,
-                        action: h.action,
-                        quantity: h.quantity,
-                        user: h.user || 'Sistema',
-                        createdAt: h.timestamp
+                        tipo: h.action,             // Antes era 'action'
+                        cantidad: h.quantity,       // Antes era 'quantity'
+                        persona: h.user || 'Sistema', // Antes era 'user'
+                        timestamp: h.timestamp || h.createdAt
                     });
                 });
             }
         });
-        allHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        res.json(allHistory.slice(0, 50));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+
+        // También traemos la colección Transaction (por si hay registros directos)
+        const directTxs = await Transaction.find().limit(50);
+        directTxs.forEach(t => {
+            allHistory.push({
+                _id: t._id,
+                itemName: t.itemName,
+                qrCode: 'N/A',
+                tipo: t.tipo,
+                cantidad: t.cantidad,
+                persona: t.persona,
+                timestamp: t.timestamp
+            });
+        });
+
+        // Ordenar por fecha (más reciente primero)
+        allHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        res.json(allHistory.slice(0, 100)); // Enviamos los últimos 100
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.post('/api/transactions', async (req, res) => {
