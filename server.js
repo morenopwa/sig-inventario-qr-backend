@@ -197,7 +197,7 @@ app.post('/api/transactions', async (req, res) => {
 
         // 3. Actualización con protección
         const itemActualizado = await Item.findOneAndUpdate(
-            { name: { $regex: new RegExp(`^${nombreLimpio}$`, "i") } },
+            { name: nombreLimpio },
             { 
                 $inc: { stock: factor },
                 $push: { 
