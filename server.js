@@ -308,7 +308,7 @@ const userSchema = new mongoose.Schema({
   // La tarifa diaria pactada con el contratista
   tarifaPactada: { type: Number, default: 0 }, 
   photo: String,
-  createdAt: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now }
   permissions: {
     canEditTarifa: { type: Boolean, default: false },
     canEditRoles: { type: Boolean, default: false },
@@ -392,21 +392,6 @@ router.get('/api/my-salary', authenticateJWT, async (req, res) => {
     res.status(500).json({ message: "Error al calcular sueldo" });
   }
 });
-
-// Ruta para cambiar tarifa (usada por Admins)
-router.put('/api/users/:id/tarifa', authenticateJWT, async (req, res) => {
-    const admin = await User.findById(req.user.id);
-
-    // 1. Si es SuperAdmin pasa directo
-    // 2. Si es Admin, revisamos su objeto de permisos
-    if (admin.role !== 'SuperAdmin' && !admin.permissions.canEditTarifa) {
-        return res.status(403).json({ message: "No tienes permiso para modificar tarifas pactadas." });
-    }
-
-    const { nuevaTarifa } = req.body;
-    await User.findByIdAndUpdate(req.params.id, { tarifaPactada: nuevaTarifa });
-    res.json({ message: "Tarifa actualizada" });
-});s
 
 // ---------------------------------------------------------------------
 // 7. CONEXIÓN Y SALUD
