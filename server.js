@@ -1,7 +1,9 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-require('dotenv').config();
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -9,7 +11,7 @@ app.use(express.json());
 
 // --- CONEXIÓN A MONGODB ---
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ MongoDB Conectado"))
+    .then(() => console.log("✅ MongoDB Conectado (ESM)"))
     .catch(err => console.error("❌ Error de conexión:", err));
 
 // --- MODELOS DE DATOS ---
@@ -38,22 +40,21 @@ const Transaction = mongoose.model('Transaction', TransactionSchema);
 
 const UserSchema = new mongoose.Schema({
     name: { type: String, required: true },
-    password: { type: String, required: true }, // Aquí se guarda el PIN
+    password: { type: String, required: true }, 
     role: { type: String, default: 'Operario' }
 });
 const User = mongoose.model('User', UserSchema);
 
-// --- VARIABLE PARA EVITAR REGISTROS DOBLES ---
+// --- CONTROL DE DUPLICADOS ---
 let lastRequest = { time: 0, body: "" };
 
-// --- RUTAS DE AUTENTICACIÓN ---
+// --- RUTAS ---
 
+// 1. LOGIN
 app.post('/api/login', async (req, res) => {
     try {
         const { name, password } = req.body;
-        // Buscamos usuario exacto (trim elimina espacios accidentales)
         const user = await User.findOne({ name: name.trim(), password: password });
-
         if (user) {
             res.json({ success: true, user: { name: user.name, role: user.role } });
         } else {
@@ -64,14 +65,13 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// --- RUTA UNIFICADA DE TRANSACCIONES (PARA CHAT Y TABLA) ---
-
+// 2. TRANSACCIONES (Auto-registro integrado)
 app.post('/api/transactions', async (req, res) => {
-    // Protección contra el "Doble Click" o "Doble Enter"
     const currentReq = JSON.stringify(req.body);
     const now = Date.now();
+    
     if (currentReq === lastRequest.body && (now - lastRequest.time) < 2000) {
-        return res.status(200).json({ success: true, message: "Petición duplicada bloqueada" });
+        return res.status(200).json({ success: true, message: "Duplicado ignorado" });
     }
     lastRequest = { time: now, body: currentReq };
 
@@ -80,24 +80,19 @@ app.post('/api/transactions', async (req, res) => {
         const nombreLimpio = itemName.trim().toUpperCase();
         const numCantidad = parseInt(cantidad) || 0;
 
-        // 1. LÓGICA DE AUTO-REGISTRO: Buscar ítem, si no existe lo creamos
         let item = await Item.findOne({ name: nombreLimpio });
         
         if (!item) {
-            console.log(`✨ Registrando nuevo item automáticamente: ${nombreLimpio}`);
             item = new Item({
                 name: nombreLimpio,
                 qrCode: `QR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 stock: 0,
-                category: 'General'
+                category: 'Nuevo'
             });
         }
 
-        // 2. ACTUALIZAR STOCK
         const factor = (tipo === 'ingreso') ? numCantidad : -numCantidad;
         item.stock += factor;
-        
-        // 3. AGREGAR AL HISTORIAL DEL ITEM
         item.history.push({
             action: tipo,
             quantity: numCantidad,
@@ -107,7 +102,6 @@ app.post('/api/transactions', async (req, res) => {
 
         await item.save();
 
-        // 4. REGISTRAR LA TRANSACCIÓN GLOBAL (Para el Chat)
         const newTx = new Transaction({
             cantidad: numCantidad,
             itemName: nombreLimpio,
@@ -119,74 +113,48 @@ app.post('/api/transactions', async (req, res) => {
 
         res.status(201).json({ success: true, item });
     } catch (err) {
-        console.error("Error en transacción:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// --- RUTAS DE INVENTARIO (TABLA) ---
-
-// Obtener todos los items
+// 3. INVENTARIO
 app.get('/api/items', async (req, res) => {
     try {
         const items = await Item.find().sort({ name: 1 });
         res.json(items);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Borrar item permanentemente
 app.delete('/api/items/:id', async (req, res) => {
     try {
         await Item.findByIdAndDelete(req.params.id);
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- RUTAS DE DATOS FRECUENTES (ATAJOS DEL CHAT) ---
-
+// 4. ATAJOS Y CHAT
 app.get('/api/frequent-data', async (req, res) => {
     try {
-        // Obtenemos los últimos 12 items registrados/usados
-        const items = await Item.find().sort({ _id: -1 }).limit(12).select('name');
-        
-        // Obtenemos las últimas personas que hicieron movimientos
-        const recentTxs = await Transaction.find().sort({ timestamp: -1 }).limit(40);
-        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 8);
-        
+        const items = await Item.find().sort({ _id: -1 }).limit(15).select('name');
+        const recentTxs = await Transaction.find().sort({ timestamp: -1 }).limit(50);
+        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
         res.json({ items, people });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Ruta para borrar atajo (del front "Long Press")
 app.delete('/api/frequent-data/item/:name', async (req, res) => {
-    try {
-        const name = decodeURIComponent(req.params.name).toUpperCase();
-        // Nota: Aquí podrías ocultar el item si tuvieras un campo "hidden"
-        // Por ahora, devolvemos éxito para que el front refresque
-        res.json({ success: true, message: `Atajo ${name} gestionado` });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    try { res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Obtener transacciones para las burbujas del Chat
 app.get('/api/transactions', async (req, res) => {
     try {
-        const txs = await Transaction.find().sort({ timestamp: -1 }).limit(25);
+        const txs = await Transaction.find().sort({ timestamp: -1 }).limit(30);
         res.json(txs);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- INICIO DEL SERVIDOR ---
+// --- LANZAMIENTO ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor ESM activo en puerto ${PORT}`);
 });
