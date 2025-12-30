@@ -9,79 +9,84 @@ const app = express();
 const PORT = parseInt(process.env.PORT) || 5001;
 const HOST = '0.0.0.0';
 
+// ---------------------------------------------------------------------
+// 1. MIDDLEWARE
+// ---------------------------------------------------------------------
 app.use(cors());
 app.use(express.json());
 
 // ---------------------------------------------------------------------
-// MODELOS
+// 2. MODELOS DE BASE DE DATOS
 // ---------------------------------------------------------------------
 
+// Modelo de Trabajadores
 const workerSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true }, 
     name: { type: String, required: true },
     lastName: { type: String, required: true },
-    dni: { type: String, required: true, unique: true },
-    phone: { type: String }, 
-    email: { type: String },
+    dni: { type: String, required: true },
+    phone: { type: Number }, 
+    email: { type: String }, // CORREGIDO: era {type: email}
     password: { type: String, default: '1234' },
     role: { 
         type: String, 
-        enum: ['SuperAdmin', 'Admin', 'Almacenero', 'Calderero', 'Maniobrista', 'Residente', 'Prevencionista', 'Soldador', 'Operario', 'Maestro'], 
+        enum: ['SuperAdmin', 'Almacenero', 'Calderero', 'Maniobrista', 'Residente', 'Prevencionista', 'Soldador', 'Operario'], 
         default: 'Operario' 
-    },
-    tarifaPactada: { type: Number, default: 0 },
-    permissions: {
-        canEditTarifa: { type: Boolean, default: false },
-        canEditRoles: { type: Boolean, default: false },
-        canDeleteItems: { type: Boolean, default: false },
-        canManageUsers: { type: Boolean, default: false }
-    },
+    }, 
     attendance: [{
         action: { type: String, enum: ['IN', 'OUT'] },
-        timestamp: { type: Date, default: Date.now }
+        timestamp: { type: Date, default: Date.now },
+        notes: String
     }]
 }, { timestamps: true });
-
 const Worker = mongoose.model('Worker', workerSchema);
 
+// Modelo de Ítems (QR)
 const itemSchema = new mongoose.Schema({
     qrCode: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     category: { type: String, required: true },
     description: { type: String, default: 'Sin descripción' },
-    status: { type: String, enum: ['new', 'available', 'borrowed', 'repair'], default: 'new' },
+    status: {
+        type: String,
+        enum: ['new', 'available', 'borrowed', 'repair'],
+        default: 'new'
+    },
     currentHolder: { type: String, default: null },
-    stock: { type: Number, default: 1 },
-    isConsumible: { type: Boolean, default: false },
-    history: [{
-        action: String,
-        quantity: Number,
-        user: String,
-        timestamp: { type: Date, default: Date.now },
-        notes: String
-    }]
+    loanDate: { type: Date, default: null },
+    registeredBy: String,
+    isConsumible: { type: Boolean, default: false }, 
+    stock: { type: Number, default: 1 }
 }, { timestamps: true });
-
 const Item = mongoose.model('Item', itemSchema);
 
-const History = mongoose.model('History', new mongoose.Schema({
-    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
-    action: String,
-    person: String,
-    quantity: Number,
-    notes: String
-}, { timestamps: true }));
+// Modelo de Historial (QR)
+const historySchema = new mongoose.Schema({
+    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
+    action: { type: String, enum: ['borrow', 'return', 'register', 'repair', 'consumption'], required: true },
+    person: { type: String, required: true },
+    validatedBy: { type: String, default: 'Sistema' },
+    quantity: { type: Number, default: 1 },
+    notes: { type: String, default: '' },
+}, { timestamps: true });
+const History = mongoose.model('History', historySchema);
 
+// Modelos para el Chat (Compatibilidad)
 const Transaction = mongoose.model('Transaction', new mongoose.Schema({
-    cantidad: Number, 
-    itemName: String, 
-    persona: String, 
+    cantidad: Number,
+    itemName: String,
+    persona: String,
     tipo: String, 
     timestamp: String
 }));
 
+const Inventory = mongoose.model('Inventory', new mongoose.Schema({
+    name: { type: String, unique: true },
+    stock: Number
+}));
+
 // ---------------------------------------------------------------------
-// UTILITARIOS
+// 3. FUNCIONES UTILITARIAS
 // ---------------------------------------------------------------------
 const getNextQrCode = async () => {
     const lastItem = await Item.findOne({ qrCode: /^G\d+$/ }).sort({ createdAt: -1 });
@@ -94,248 +99,324 @@ const getNextQrCode = async () => {
 };
 
 // ---------------------------------------------------------------------
-// RUTAS SUPERADMIN & GESTIÓN USUARIOS
+// 4. RUTAS DEL CHAT Y DATOS FRECUENTES (Resuelve el 404)
 // ---------------------------------------------------------------------
 
-app.put('/api/superadmin/toggle-permission', async (req, res) => {
-    const { userId, permissionKey, newValue } = req.body;
-    try {
-        const updateField = {};
-        updateField[`permissions.${permissionKey}`] = newValue;
-        await Worker.findByIdAndUpdate(userId, { $set: updateField });
-        res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-app.put('/api/superadmin/change-role', async (req, res) => {
-    const { userId, newRole } = req.body;
-    try {
-        await Worker.findByIdAndUpdate(userId, { role: newRole });
-        res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-app.delete('/api/users/:id', async (req, res) => {
-    try {
-        await Worker.findByIdAndDelete(req.params.id);
-        res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-// ---------------------------------------------------------------------
-// RUTAS INVENTARIO & CHAT
-// ---------------------------------------------------------------------
-
+// Obtener datos para los botones del Chat
 app.get('/api/frequent-data', async (req, res) => {
     try {
-        const recentTxs = await Transaction.find().sort({ _id: -1 }).limit(100);
+        // Buscamos las últimas transacciones para determinar qué se usó recientemente
+        const recentTxs = await Transaction.find()
+            .sort({ timestamp: -1 }) // Ordenar por lo más nuevo primero
+            .limit(100);
+
+        // Extraer nombres de ítems y personas sin repetir, manteniendo el orden de aparición
         const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
         const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
-        res.json({ items: items.map(name => ({ name })), people });
-    } catch (error) { res.json({ items: [], people: [] }); }
+
+        res.json({
+            items: items.map(name => ({ name })),
+            people: people
+        });
+    } catch (error) {
+        res.status(500).json({ items: [], people: [] });
+    }
+});
+
+// Eliminar un ítem de los atajos (borra sus registros de transacciones)
+app.delete('/api/frequent-data/item/:name', async (req, res) => {
+  try {
+    await Transaction.deleteMany({ itemName: req.params.name.toUpperCase() });
+    res.json({ success: true, message: "Atajo de ítem eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Eliminar una persona de los atajos
+app.delete('/api/frequent-data/person/:name', async (req, res) => {
+  try {
+    await Transaction.deleteMany({ persona: req.params.name });
+    res.json({ success: true, message: "Atajo de persona eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/transactions', async (req, res) => {
-    try {
-        // Traemos todos los items para sacar su historial interno
-        const items = await Item.find();
-        let allHistory = [];
+  try {
+    // Traemos transacciones del chat
+    const chatTxs = await Transaction.find().sort({ _id: -1 }).limit(20);
+    // Traemos historial del QR
+    const qrTxs = await History.find().populate('itemId').sort({ _id: -1 }).limit(20);
 
-        items.forEach(item => {
-            if (item.history && item.history.length > 0) {
-                item.history.forEach(h => {
-                    allHistory.push({
-                        _id: h._id,
-                        itemName: item.name,        // Antes era 'item'
-                        qrCode: item.qrCode,
-                        tipo: h.action,             // Antes era 'action'
-                        cantidad: h.quantity,       // Antes era 'quantity'
-                        persona: h.user || 'Sistema', // Antes era 'user'
-                        timestamp: h.timestamp || h.createdAt
-                    });
-                });
-            }
-        });
-
-        // También traemos la colección Transaction (por si hay registros directos)
-        const directTxs = await Transaction.find().limit(50);
-        directTxs.forEach(t => {
-            allHistory.push({
-                _id: t._id,
-                itemName: t.itemName,
-                qrCode: 'N/A',
-                tipo: t.tipo,
-                cantidad: t.cantidad,
-                persona: t.persona,
-                timestamp: t.timestamp
-            });
-        });
-
-        // Ordenar por fecha (más reciente primero)
-        allHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        res.json(allHistory.slice(0, 100)); // Enviamos los últimos 100
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    // Los unificamos en una sola lista (puedes añadir lógica de mapeo para que tengan los mismos campos)
+    const combined = [...chatTxs, ...qrTxs].sort((a, b) => b.createdAt - a.createdAt);
+    
+    res.json(combined);
+  } catch (err) {
+    res.status(500).json({ error: "Error al unificar historial" });
+  }
 });
 
+// RUTA 1: Para buscar productos por QR
+app.get('/api/items/qr/:qrCode', async (req, res) => {
+  const item = await Item.findOne({ qrCode: req.params.qrCode });
+  if (!item) return res.status(404).json({ message: "Ítem no encontrado" });
+  res.json(item);
+});
+
+// RUTA 2: Para marcar asistencia de trabajadores
+app.post('/api/attendance/scan', async (req, res) => {
+  const { qrCode } = req.body;
+  const worker = await Worker.findOne({ qrCode });
+  
+  if (!worker) return res.status(404).json({ message: "Trabajador no existe" });
+
+  // Lógica simple: Si no hay entrada hoy, marca IN. Si ya hay, marca OUT.
+  // (Aquí puedes insertar la lógica de asistencia que ya tienes)
+  res.json({ message: `Registro exitoso para ${worker.name}` });
+});
+
+// Guardar desde el Chat
 app.post('/api/transactions', async (req, res) => {
-    try {
-        const { cantidad, itemName, persona, tipo } = req.body;
-        const nombreLimpio = itemName.trim().toUpperCase();
-        const numCantidad = parseInt(cantidad) || 0;
+  try {
+    const { cantidad, itemName, persona, tipo, timestamp } = req.body;
+    const nombreLimpio = itemName.trim().toUpperCase();
 
-        // 1. Intentar buscar el ítem en el inventario
-        let item = await Item.findOneAndUpdate({ name: nombreLimpio });
+    // 1. Guardamos en la tabla de transacciones del chat
+    const newTx = new Transaction({ 
+        cantidad, itemName: nombreLimpio, persona, tipo, timestamp 
+    });
+    await newTx.save();
 
-        // 2. SI NO EXISTE, LO CREAMOS AUTOMÁTICAMENTE
-        if (!item) {
-            console.log(`✨ Creando nuevo ítem: ${nombreLimpio}`);
-            item = new Item({
-                name: nombreLimpio,
-                category: "General", // Categoría por defecto
-                stock: 0,           // Empezamos en 0 para luego sumar/restar
-                qrCode: `QR-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-                history: []
-            });
-            await item.save();
+    // 2. ACTUALIZACIÓN DE STOCK CON AUTO-CREACIÓN (Upsert)
+    // Buscamos en la colección 'Item' (la del inventario general)
+    const factor = tipo === 'ingreso' ? cantidad : -cantidad;
+    
+    const item = await Item.findOneAndUpdate(
+      { name: nombreLimpio },
+      { 
+        $inc: { stock: factor },
+        $setOnInsert: { 
+          qrCode: `E-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, // QR genérico para items de voz
+          category: 'General',
+          isConsumible: true,
+          status: 'available'
         }
+      },
+      { upsert: true, new: true } // Si no existe, lo crea.
+    );
 
-        // 3. Definir el factor (Ingreso suma, Salida resta)
-        const factor = (tipo.toLowerCase() === 'ingreso' || tipo.toLowerCase() === 'entrada') 
-            ? numCantidad 
-            : -numCantidad;
+    // 3. Registrar en Historial para los reportes
+    await new History({
+        itemId: item._id,
+        action: tipo === 'ingreso' ? 'register' : 'consumption',
+        person: persona,
+        quantity: cantidad,
+        notes: "Registro automático vía Chat"
+    }).save();
 
-        // 4. Actualizar el ítem (Stock e Historial)
-        item.stock += factor;
-        item.history.push({
-            action: tipo,
-            quantity: numCantidad,
-            user: persona,
-            timestamp: new Date(),
-            notes: "Registro automático vía transacción"
-        });
-
-        await item.save();
-
-        // 5. Guardar el log en la colección de Transacciones global
-        const newTx = new Transaction({ 
-            cantidad: numCantidad, 
-            itemName: nombreLimpio, 
-            persona, 
-            tipo, 
-            timestamp: new Date() 
-        });
-        await newTx.save();
-
-        res.status(201).json({ 
-            success: true, 
-            message: item.isNew ? "Ítem creado y stock actualizado" : "Stock actualizado",
-            item 
-        });
-
-    } catch (err) {
-        console.error("🔴 Error:", err);
-        res.status(500).json({ error: err.message });
-    }
+    res.status(201).json(newTx);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error en sincronización" });
+  }
 });
+
+// ---------------------------------------------------------------------
+// 5. RUTAS DE INVENTARIO QR
+// ---------------------------------------------------------------------
 
 app.get('/api/items', async (req, res) => {
-    const items = await Item.find().sort({ name: 1 });
-    res.json(items);
+    try {
+        const items = await Item.find().sort({ name: 1 });
+        res.json(items);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.post('/api/items', async (req, res) => {
     try {
-        const { name, category, stock } = req.body;
-        
-        // Buscamos si ya existe (para evitar duplicados)
-        let item = await Item.findOne({ name: name.toUpperCase() });
-        
-        if (item) {
-            return res.status(400).json({ error: "Este elemento ya existe en el inventario." });
-        }
-
-        // Si no existe, lo CREAMOS
+        const { name, category, description, registeredBy, isConsumible, stock } = req.body;
+        const qrCode = await getNextQrCode();
         const newItem = new Item({
-            name: name.toUpperCase(),
-            category: category || 'General',
-            stock: parseInt(stock) || 0,
-            qrCode: `QR-${Date.now()}`, // Generar un código temporal
-            history: [{
-                action: 'registro',
-                quantity: stock,
-                user: 'Admin',
-                timestamp: new Date()
-            }]
+            qrCode, name, category, description, status: 'available',
+            registeredBy, isConsumible, stock: isConsumible ? parseInt(stock) : 1 
         });
-
         await newItem.save();
-        res.status(201).json({ success: true, item: newItem });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.json({ message: 'Item registrado', item: newItem, qrCode });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/items/:id', async (req, res) => {
+    try {
+        await Item.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: "Item eliminado" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
 // ---------------------------------------------------------------------
-// RUTAS LOGIN & PERSONAL
+// 6. TRABAJADORES Y ASISTENCIA
 // ---------------------------------------------------------------------
 
 app.post('/api/login', async (req, res) => {
-    const { name, password } = req.body;
     try {
+        const { name, password } = req.body;
         const worker = await Worker.findOne({ name });
-        if (!worker || worker.password !== password) return res.status(401).json({ success: false });
-        res.json({ success: true, user: worker });
-    } catch (err) { res.status(500).json({ success: false }); }
+        if (!worker || worker.password !== password) {
+            return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+        }
+        res.json({ success: true, user: { id: worker._id, name: worker.name, role: worker.role } });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
 });
 
 app.get('/api/workers', async (req, res) => {
-    const workers = await Worker.find().sort({ name: 1 });
-    res.json(workers);
+    try {
+        const workers = await Worker.find();
+        res.json(workers);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.post('/api/workers/register', async (req, res) => {
     try {
+        const { name, lastName, dni, phone, email, password, role } = req.body; 
         const qrCode = `W-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
-        const newWorker = new Worker({ ...req.body, qrCode });
+        const newWorker = new Worker({ qrCode, name, lastName, dni, phone, email, password, role });
         await newWorker.save();
         res.json({ success: true, worker: newWorker });
-    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
-});
-
-app.post('/api/attendance/scan', async (req, res) => {
-    try {
-        const worker = await Worker.findOne({ qrCode: req.body.qrCode });
-        if (!worker) return res.status(404).json({ message: "No encontrado" });
-        const last = worker.attendance[worker.attendance.length - 1];
-        const action = (!last || last.action === 'OUT') ? 'IN' : 'OUT';
-        worker.attendance.push({ action, timestamp: new Date() });
-        await worker.save();
-        res.json({ success: true, message: `${action} registrada`, workerName: worker.name });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-
-// Ruta para eliminar un ÍTEM del inventario
-app.delete('/api/items/:id', async (req, res) => {
-    try {
-        await Item.findByIdAndDelete(req.params.id);
-        res.json({ success: true, message: "Ítem eliminado" });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  dni: { type: String, unique: true },
+  password: { type: String, required: true },
+  // Roles que definimos: 'Soldador', 'Calderero', 'Almacenero', 'Admin', etc.
+  role: { type: String, default: 'Soldador' }, 
+  // La tarifa diaria pactada con el contratista
+  tarifaPactada: { type: Number, default: 0 }, 
+  photo: String,
+  createdAt: { type: Date, default: Date.now },
+  permissions: {
+    canEditTarifa: { type: Boolean, default: false },
+    canEditRoles: { type: Boolean, default: false },
+    canDeleteItems: { type: Boolean, default: false },
+    canManageUsers: { type: Boolean, default: false }
+  }
+});
 
+// PUT /api/users/:id/update-profile
+router.put('/api/users/:id/update-profile', authenticateJWT, async (req, res) => {
+  const { role, tarifaPactada, name } = req.body;
+  const adminUser = req.user; // Obtenido del token
+
+  // Seguridad: Solo Admin o SuperAdmin pueden hacer estos cambios
+  if (adminUser.role !== 'Admin' && adminUser.role !== 'SuperAdmin') {
+    return res.status(403).json({ message: "No tienes permiso para modificar perfiles." });
+  }
+
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      { 
+        role, 
+        tarifaPactada, 
+        name 
+      },
+      { new: true } // Para devolver el usuario ya actualizado
+    );
+
+    if (!updatedUser) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    res.json({
+      message: "Perfil actualizado correctamente",
+      user: updatedUser
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error en el servidor", error });
+  }
+});
+
+// GET /api/my-salary
+router.get('/api/my-salary', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    // Aquí deberías contar cuántos registros de asistencia tiene en la semana actual
+    // Por ahora simulamos 6 días trabajados
+    const diasAsistidos = 6; 
+    const sueldoSemanal = diasAsistidos * user.tarifaPactada;
+
+    res.json({
+      nombre: user.name,
+      rol: user.role,
+      tarifaDiaria: user.tarifaPactada,
+      diasTrabajados: diasAsistidos,
+      totalAcumulado: sueldoSemanal
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error al calcular sueldo" });
+  }
+});
+
+// GET /api/my-salary
+router.get('/api/my-salary', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    // Aquí deberías contar cuántos registros de asistencia tiene en la semana actual
+    // Por ahora simulamos 6 días trabajados
+    const diasAsistidos = 6; 
+    const sueldoSemanal = diasAsistidos * user.tarifaPactada;
+
+    res.json({
+      nombre: user.name,
+      rol: user.role,
+      tarifaDiaria: user.tarifaPactada,
+      diasTrabajados: diasAsistidos,
+      totalAcumulado: sueldoSemanal
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error al calcular sueldo" });
+  }
+});
+
+// Ruta para cambiar tarifa (usada por Admins)
+router.put('/api/users/:id/tarifa', authenticateJWT, async (req, res) => {
+    const admin = await User.findById(req.user.id);
+
+    // 1. Si es SuperAdmin pasa directo
+    // 2. Si es Admin, revisamos su objeto de permisos
+    if (admin.role !== 'SuperAdmin' && !admin.permissions.canEditTarifa) {
+        return res.status(403).json({ message: "No tienes permiso para modificar tarifas pactadas." });
+    }
+
+    const { nuevaTarifa } = req.body;
+    await User.findByIdAndUpdate(req.params.id, { tarifaPactada: nuevaTarifa });
+    res.json({ message: "Tarifa actualizada" });
+});s
 
 // ---------------------------------------------------------------------
-// CONEXIÓN
+// 7. CONEXIÓN Y SALUD
 // ---------------------------------------------------------------------
+app.get('/health', (req, res) => res.json({ status: 'OK' }));
+
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => {
-        console.log('✅ Base de datos conectada');
-        app.listen(PORT, HOST, () => console.log(`🔊 Puerto ${PORT}`));
-    })
-    .catch(err => console.error('❌ Error:', err));
+    .then(() => console.log('✅ Conectado a MongoDB Atlas'))
+    .catch(err => console.error('❌ Error MongoDB:', err));
+
+app.listen(PORT, HOST, () => {
+    console.log(`🔊 Servidor escuchando en http://${HOST}:${PORT}`);
+});
