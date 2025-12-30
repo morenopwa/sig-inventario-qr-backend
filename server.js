@@ -182,57 +182,61 @@ app.get('/api/transactions', async (req, res) => {
 
 app.post('/api/transactions', async (req, res) => {
     try {
-        const { cantidad, itemName, persona, tipo, timestamp } = req.body;
-        
-        // 1. Limpieza extrema de datos
-        const nombreLimpio = itemName.trim();
-        const numCantidad = parseInt(cantidad); // Forzamos a que sea número
-        
-        console.log(`Buscando item: "${nombreLimpio}" para ${tipo} de ${numCantidad} unidades.`);
+        const { cantidad, itemName, persona, tipo } = req.body;
+        const nombreLimpio = itemName.trim().toUpperCase();
+        const numCantidad = parseInt(cantidad) || 0;
 
-        // 2. Definir si suma o resta
+        // 1. Intentar buscar el ítem en el inventario
+        let item = await Item.findOne({ name: nombreLimpio });
+
+        // 2. SI NO EXISTE, LO CREAMOS AUTOMÁTICAMENTE
+        if (!item) {
+            console.log(`✨ Creando nuevo ítem: ${nombreLimpio}`);
+            item = new Item({
+                name: nombreLimpio,
+                category: "General", // Categoría por defecto
+                stock: 0,           // Empezamos en 0 para luego sumar/restar
+                qrCode: `QR-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+                history: []
+            });
+            await item.save();
+        }
+
+        // 3. Definir el factor (Ingreso suma, Salida resta)
         const factor = (tipo.toLowerCase() === 'ingreso' || tipo.toLowerCase() === 'entrada') 
             ? numCantidad 
             : -numCantidad;
 
-        // 3. Actualización con protección
-        const itemActualizado = await Item.findOneAndUpdate(
-            { name: { $regex: new RegExp(`^${nombreLimpio}$`, "i") } },
-            { 
-                $inc: { stock: factor },
-                $push: { 
-                    history: { 
-                        action: tipo, 
-                        quantity: numCantidad, 
-                        user: persona, 
-                        timestamp: new Date(),
-                        notes: "Movimiento vía Chat/Registro" 
-                    } 
-                }
-            },
-            { new: true } // Esto devuelve el item ya actualizado
-        );
+        // 4. Actualizar el ítem (Stock e Historial)
+        item.stock += factor;
+        item.history.push({
+            action: tipo,
+            quantity: numCantidad,
+            user: persona,
+            timestamp: new Date(),
+            notes: "Registro automático vía transacción"
+        });
 
-        if (!itemActualizado) {
-            console.error(`❌ El item "${nombreLimpio}" no se encontró.`);
-            return res.status(404).json({ error: "Item no encontrado en el inventario." });
-        }
+        await item.save();
 
-        // 4. Guardar en la colección global de transacciones
+        // 5. Guardar el log en la colección de Transacciones global
         const newTx = new Transaction({ 
             cantidad: numCantidad, 
-            itemName: itemActualizado.name, // Usamos el nombre real de la DB
+            itemName: nombreLimpio, 
             persona, 
             tipo, 
-            timestamp: new Date().toISOString() 
+            timestamp: new Date() 
         });
         await newTx.save();
 
-        console.log(`✅ Stock actualizado. Nuevo stock de ${itemActualizado.name}: ${itemActualizado.stock}`);
-        res.status(201).json({ success: true, item: itemActualizado });
+        res.status(201).json({ 
+            success: true, 
+            message: item.isNew ? "Ítem creado y stock actualizado" : "Stock actualizado",
+            item 
+        });
 
     } catch (err) {
-        console.error("🔴 Error en transacción:", err);
+        console.error("🔴 Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
