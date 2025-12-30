@@ -197,7 +197,7 @@ app.post('/api/transactions', async (req, res) => {
 
         // 3. Actualización con protección
         const itemActualizado = await Item.findOneAndUpdate(
-            { name: nombreLimpio },
+            { name: { $regex: new RegExp(`^${nombreLimpio}$`, "i") } },
             { 
                 $inc: { stock: factor },
                 $push: { 
@@ -244,12 +244,34 @@ app.get('/api/items', async (req, res) => {
 
 app.post('/api/items', async (req, res) => {
     try {
-        const { name, category, description, registeredBy, isConsumible, stock } = req.body;
-        const qrCode = await getNextQrCode();
-        const newItem = new Item({ qrCode, name, category, description, registeredBy, isConsumible, stock, history: [{ action: 'register', quantity: stock, user: registeredBy }] });
+        const { name, category, stock } = req.body;
+        
+        // Buscamos si ya existe (para evitar duplicados)
+        let item = await Item.findOne({ name: name.toUpperCase() });
+        
+        if (item) {
+            return res.status(400).json({ error: "Este elemento ya existe en el inventario." });
+        }
+
+        // Si no existe, lo CREAMOS
+        const newItem = new Item({
+            name: name.toUpperCase(),
+            category: category || 'General',
+            stock: parseInt(stock) || 0,
+            qrCode: `QR-${Date.now()}`, // Generar un código temporal
+            history: [{
+                action: 'registro',
+                quantity: stock,
+                user: 'Admin',
+                timestamp: new Date()
+            }]
+        });
+
         await newItem.save();
-        res.json({ item: newItem });
-    } catch (error) { res.status(500).json({ error: error.message }); }
+        res.status(201).json({ success: true, item: newItem });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ---------------------------------------------------------------------
