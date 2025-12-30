@@ -187,7 +187,7 @@ app.post('/api/transactions', async (req, res) => {
         const numCantidad = parseInt(cantidad) || 0;
 
         // 1. Intentar buscar el ítem en el inventario
-        let item = await Item.findOne({ name: nombreLimpio });
+        let item = await Item.findOneAndUpdate({ name: nombreLimpio });
 
         // 2. SI NO EXISTE, LO CREAMOS AUTOMÁTICAMENTE
         if (!item) {
