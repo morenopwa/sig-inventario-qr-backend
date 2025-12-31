@@ -2,15 +2,24 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
-
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
+
 // --- CONEXIÓN A MONGODB ---
+app.use(express.static(path.join(__dirname, 'dist')));
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log("✅ MongoDB Conectado version auto ESM)"))
