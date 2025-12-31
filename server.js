@@ -17,10 +17,6 @@ app.use(express.json());
 
 // --- CONEXIÓN A MONGODB ---
 
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log("✅ MongoDB Conectado version auto ESM)"))
     .catch(err => console.error("❌ Error de conexión:", err));
