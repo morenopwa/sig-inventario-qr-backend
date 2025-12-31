@@ -12,10 +12,11 @@ app.use(express.json());
 // --- CONEXIÓN A MONGODB ---
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log("✅ MongoDB Conectado ya tamos ESM)"))
-    
+
     .catch(err => console.error("❌ Error de conexión:", err));
 
 // --- MODELOS DE DATOS ---
+
 const ItemSchema = new mongoose.Schema({
     qrCode: { type: String, unique: true },
     name: { type: String, required: true, uppercase: true },
@@ -28,6 +29,7 @@ const ItemSchema = new mongoose.Schema({
         timestamp: { type: Date, default: Date.now }
     }]
 });
+
 const Item = mongoose.model('Item', ItemSchema);
 
 const TransactionSchema = new mongoose.Schema({
