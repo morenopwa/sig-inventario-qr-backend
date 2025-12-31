@@ -198,7 +198,10 @@ app.get('/api/transactions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-
+// Ruta de cortesía para el inicio
+app.get('/', (req, res) => {
+    res.send('🚀 Servidor de Inventario QR - Estado: ONLINE');
+});
 
 // --- LANZAMIENTO ---
 const PORT = process.env.PORT || 5000;
