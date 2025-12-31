@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // --- CONEXIÓN A MONGODB ---
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log("✅ MongoDB Conectado (ESM)"))
     .catch(err => console.error("❌ Error de conexión:", err));
 
