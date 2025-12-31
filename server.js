@@ -11,7 +11,8 @@ app.use(express.json());
 
 // --- CONEXIÓN A MONGODB ---
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log("✅ MongoDB Conectado ya tamos ESM)"))
+    .then(() => console.log("✅ MongoDB Conectado version auto deplit ESM)"))
+    
     .catch(err => console.error("❌ Error de conexión:", err));
 // --- MODELOS DE DATOS ---
 
