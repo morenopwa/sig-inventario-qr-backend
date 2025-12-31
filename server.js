@@ -201,6 +201,7 @@ app.get('/api/transactions', async (req, res) => {
 // Ruta de cortesía para el inicio
 app.get('/', (req, res) => {
     res.send('🚀 Servidor de Inventario QR - Estado: ONLINE');
+    
 });
 
 // --- LANZAMIENTO ---
