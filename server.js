@@ -10,9 +10,9 @@ app.use(cors());
 app.use(express.json());
 
 // --- CONEXIÓN A MONGODB ---
+
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log("✅ MongoDB Conectado version auto deplit ESM)"))
-    
     .catch(err => console.error("❌ Error de conexión:", err));
 // --- MODELOS DE DATOS ---
 
@@ -31,11 +31,13 @@ const ItemSchema = new mongoose.Schema({
 const Item = mongoose.model('Item', ItemSchema);
 
 const TransactionSchema = new mongoose.Schema({
+
     cantidad: Number,
     itemName: { type: String, uppercase: true },
     persona: String,
     tipo: String, 
     timestamp: { type: Date, default: Date.now }
+    
 });
 const Transaction = mongoose.model('Transaction', TransactionSchema);
 
