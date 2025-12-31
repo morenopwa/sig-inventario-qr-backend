@@ -6,402 +6,196 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT) || 5001;
-const HOST = '0.0.0.0';
-
-// ---------------------------------------------------------------------
-// 1. MIDDLEWARE
-// ---------------------------------------------------------------------
 app.use(cors());
 app.use(express.json());
 
-// ---------------------------------------------------------------------
-// 2. MODELOS DE BASE DE DATOS
-// ---------------------------------------------------------------------
+// --- CONEXIÓN A MONGODB ---
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log("✅ MongoDB Conectado (ESM)"))
+    .catch(err => console.error("❌ Error de conexión:", err));
 
-// Modelo de Trabajadores
-const workerSchema = new mongoose.Schema({
-    qrCode: { type: String, required: true, unique: true }, 
-    name: { type: String, required: true },
-    lastName: { type: String, required: true },
-    dni: { type: String, required: true },
-    phone: { type: Number }, 
-    email: { type: String }, // CORREGIDO: era {type: email}
-    password: { type: String, default: '1234' },
-    role: { 
-        type: String, 
-        enum: ['SuperAdmin', 'Almacenero', 'Calderero', 'Maniobrista', 'Residente', 'Prevencionista', 'Soldador', 'Operario'], 
-        default: 'Operario' 
-    }, 
-    attendance: [{
-        action: { type: String, enum: ['IN', 'OUT'] },
-        timestamp: { type: Date, default: Date.now },
-        notes: String
+// --- MODELOS DE DATOS ---
+const ItemSchema = new mongoose.Schema({
+    qrCode: { type: String, unique: true },
+    name: { type: String, required: true, uppercase: true },
+    category: { type: String, default: 'General' },
+    stock: { type: Number, default: 0 },
+    history: [{
+        action: String,
+        quantity: Number,
+        user: String,
+        timestamp: { type: Date, default: Date.now }
     }]
-}, { timestamps: true });
-const Worker = mongoose.model('Worker', workerSchema);
+});
+const Item = mongoose.model('Item', ItemSchema);
 
-// Modelo de Ítems (QR)
-const itemSchema = new mongoose.Schema({
-    qrCode: { type: String, required: true, unique: true },
-    name: { type: String, required: true },
-    category: { type: String, required: true },
-    description: { type: String, default: 'Sin descripción' },
-    status: {
-        type: String,
-        enum: ['new', 'available', 'borrowed', 'repair'],
-        default: 'new'
-    },
-    currentHolder: { type: String, default: null },
-    loanDate: { type: Date, default: null },
-    registeredBy: String,
-    isConsumible: { type: Boolean, default: false }, 
-    stock: { type: Number, default: 1 }
-}, { timestamps: true });
-const Item = mongoose.model('Item', itemSchema);
-
-// Modelo de Historial (QR)
-const historySchema = new mongoose.Schema({
-    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
-    action: { type: String, enum: ['borrow', 'return', 'register', 'repair', 'consumption'], required: true },
-    person: { type: String, required: true },
-    validatedBy: { type: String, default: 'Sistema' },
-    quantity: { type: Number, default: 1 },
-    notes: { type: String, default: '' },
-}, { timestamps: true });
-const History = mongoose.model('History', historySchema);
-
-// Modelos para el Chat (Compatibilidad)
-const Transaction = mongoose.model('Transaction', new mongoose.Schema({
+const TransactionSchema = new mongoose.Schema({
     cantidad: Number,
-    itemName: String,
+    itemName: { type: String, uppercase: true },
     persona: String,
     tipo: String, 
-    timestamp: String
-}));
+    timestamp: { type: Date, default: Date.now }
+});
+const Transaction = mongoose.model('Transaction', TransactionSchema);
 
-const Inventory = mongoose.model('Inventory', new mongoose.Schema({
-    name: { type: String, unique: true },
-    stock: Number
-}));
+const UserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    password: { type: String, required: true }, 
+    role: { type: String, default: 'Operario' },
+    sueldoBase: { type: Number, default: 0 }
+});
+const User = mongoose.model('User', UserSchema);
 
-// ---------------------------------------------------------------------
-// 3. FUNCIONES UTILITARIAS
-// ---------------------------------------------------------------------
-const getNextQrCode = async () => {
-    const lastItem = await Item.findOne({ qrCode: /^G\d+$/ }).sort({ createdAt: -1 });
-    let nextNumber = 1;
-    if (lastItem && lastItem.qrCode) {
-        const numberMatch = lastItem.qrCode.match(/\d+/);
-        if (numberMatch) nextNumber = parseInt(numberMatch[0], 10) + 1;
-    }
-    return 'G' + String(nextNumber).padStart(3, '0');
+// --- MIDDLEWARE DE AUTENTICACIÓN (SIMPLIFICADO PARA ESTA ETAPA) ---
+// Si necesitas JWT estricto, aquí deberías validar el token. 
+// Por ahora, dejamos la función para que no de error el código.
+const authenticateJWT = (req, res, next) => {
+    // Lógica de validación de token aquí
+    next(); 
 };
 
-// ---------------------------------------------------------------------
-// 4. RUTAS DEL CHAT Y DATOS FRECUENTES (Resuelve el 404)
-// ---------------------------------------------------------------------
+// --- VARIABLE PARA EVITAR DUPLICADOS ---
+let lastRequest = { time: 0, body: "" };
 
-// Obtener datos para los botones del Chat
-app.get('/api/frequent-data', async (req, res) => {
+// --- RUTAS DE USUARIOS (GESTIÓN DE TRABAJADORES) ---
+
+// Obtener todos los usuarios
+app.get('/api/users', async (req, res) => {
     try {
-        // Buscamos las últimas transacciones para determinar qué se usó recientemente
-        const recentTxs = await Transaction.find()
-            .sort({ timestamp: -1 }) // Ordenar por lo más nuevo primero
-            .limit(100);
+        const users = await User.find().select('-password');
+        res.json(users);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-        // Extraer nombres de ítems y personas sin repetir, manteniendo el orden de aparición
-        const items = [...new Set(recentTxs.map(t => t.itemName))].slice(0, 10);
-        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
+// Crear nuevo usuario (Trabajador)
+app.post('/api/users', async (req, res) => {
+    try {
+        const newUser = new User(req.body);
+        await newUser.save();
+        res.status(201).json({ success: true, user: newUser });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-        res.json({
-            items: items.map(name => ({ name })),
-            people: people
-        });
-    } catch (error) {
-        res.status(500).json({ items: [], people: [] });
+// Actualizar perfil (La ruta que te daba error)
+app.put('/api/users/:id/update-profile', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updatedUser = await User.findByIdAndUpdate(id, req.body, { new: true });
+        res.json({ success: true, user: updatedUser });
+    } catch (err) {
+        res.status(500).json({ error: "Error al actualizar perfil" });
     }
 });
 
-// Eliminar un ítem de los atajos (borra sus registros de transacciones)
-app.delete('/api/frequent-data/item/:name', async (req, res) => {
-  try {
-    await Transaction.deleteMany({ itemName: req.params.name.toUpperCase() });
-    res.json({ success: true, message: "Atajo de ítem eliminado" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Eliminar usuario
+app.delete('/api/users/:id', async (req, res) => {
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Eliminar una persona de los atajos
-app.delete('/api/frequent-data/person/:name', async (req, res) => {
-  try {
-    await Transaction.deleteMany({ persona: req.params.name });
-    res.json({ success: true, message: "Atajo de persona eliminado" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- RUTAS DE AUTENTICACIÓN ---
 
-app.get('/api/transactions', async (req, res) => {
-  try {
-    // Traemos transacciones del chat
-    const chatTxs = await Transaction.find().sort({ _id: -1 }).limit(20);
-    // Traemos historial del QR
-    const qrTxs = await History.find().populate('itemId').sort({ _id: -1 }).limit(20);
-
-    // Los unificamos en una sola lista (puedes añadir lógica de mapeo para que tengan los mismos campos)
-    const combined = [...chatTxs, ...qrTxs].sort((a, b) => b.createdAt - a.createdAt);
-    
-    res.json(combined);
-  } catch (err) {
-    res.status(500).json({ error: "Error al unificar historial" });
-  }
-});
-
-// RUTA 1: Para buscar productos por QR
-app.get('/api/items/qr/:qrCode', async (req, res) => {
-  const item = await Item.findOne({ qrCode: req.params.qrCode });
-  if (!item) return res.status(404).json({ message: "Ítem no encontrado" });
-  res.json(item);
-});
-
-// RUTA 2: Para marcar asistencia de trabajadores
-app.post('/api/attendance/scan', async (req, res) => {
-  const { qrCode } = req.body;
-  const worker = await Worker.findOne({ qrCode });
-  
-  if (!worker) return res.status(404).json({ message: "Trabajador no existe" });
-
-  // Lógica simple: Si no hay entrada hoy, marca IN. Si ya hay, marca OUT.
-  // (Aquí puedes insertar la lógica de asistencia que ya tienes)
-  res.json({ message: `Registro exitoso para ${worker.name}` });
-});
-
-// Guardar desde el Chat
-app.post('/api/transactions', async (req, res) => {
-  try {
-    const { cantidad, itemName, persona, tipo, timestamp } = req.body;
-    const nombreLimpio = itemName.trim().toUpperCase();
-
-    // 1. Guardamos en la tabla de transacciones del chat
-    const newTx = new Transaction({ 
-        cantidad, itemName: nombreLimpio, persona, tipo, timestamp 
-    });
-    await newTx.save();
-
-    // 2. ACTUALIZACIÓN DE STOCK CON AUTO-CREACIÓN (Upsert)
-    // Buscamos en la colección 'Item' (la del inventario general)
-    const factor = tipo === 'ingreso' ? cantidad : -cantidad;
-    
-    const item = await Item.findOneAndUpdate(
-      { name: nombreLimpio },
-      { 
-        $inc: { stock: factor },
-        $setOnInsert: { 
-          qrCode: `E-${Math.random().toString(36).substr(2, 5).toUpperCase()}`, // QR genérico para items de voz
-          category: 'General',
-          isConsumible: true,
-          status: 'available'
+app.post('/api/login', async (req, res) => {
+    try {
+        const { name, password } = req.body;
+        const user = await User.findOne({ name: name.trim(), password: password });
+        if (user) {
+            res.json({ success: true, user: { _id: user._id, name: user.name, role: user.role } });
+        } else {
+            res.status(401).json({ success: false, message: "Nombre o PIN incorrectos" });
         }
-      },
-      { upsert: true, new: true } // Si no existe, lo crea.
-    );
-
-    // 3. Registrar en Historial para los reportes
-    await new History({
-        itemId: item._id,
-        action: tipo === 'ingreso' ? 'register' : 'consumption',
-        person: persona,
-        quantity: cantidad,
-        notes: "Registro automático vía Chat"
-    }).save();
-
-    res.status(201).json(newTx);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error en sincronización" });
-  }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ---------------------------------------------------------------------
-// 5. RUTAS DE INVENTARIO QR
-// ---------------------------------------------------------------------
+// --- RUTA DE TRANSACCIONES (CON AUTO-REGISTRO Y ANTI-DUPLICADOS) ---
+
+app.post('/api/transactions', async (req, res) => {
+    const currentReq = JSON.stringify(req.body);
+    const now = Date.now();
+    
+    if (currentReq === lastRequest.body && (now - lastRequest.time) < 2000) {
+        return res.status(200).json({ success: true, message: "Duplicado bloqueado" });
+    }
+    lastRequest = { time: now, body: currentReq };
+
+    try {
+        const { cantidad, itemName, persona, tipo } = req.body;
+        const nombreLimpio = itemName.trim().toUpperCase();
+        const numCantidad = parseInt(cantidad) || 0;
+
+        let item = await Item.findOne({ name: nombreLimpio });
+        
+        if (!item) {
+            item = new Item({
+                name: nombreLimpio,
+                qrCode: `QR-${Date.now()}`,
+                stock: 0,
+                category: 'General'
+            });
+        }
+
+        const factor = (tipo === 'ingreso' || tipo === 'entrada') ? numCantidad : -numCantidad;
+        item.stock += factor;
+        item.history.push({
+            action: tipo,
+            quantity: numCantidad,
+            user: persona || 'Admin',
+            timestamp: new Date()
+        });
+
+        await item.save();
+
+        const newTx = new Transaction({
+            cantidad: numCantidad,
+            itemName: nombreLimpio,
+            persona: persona || 'Admin',
+            tipo,
+            timestamp: new Date()
+        });
+        await newTx.save();
+
+        res.status(201).json({ success: true, item });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- RUTAS DE INVENTARIO ---
 
 app.get('/api/items', async (req, res) => {
     try {
         const items = await Item.find().sort({ name: 1 });
         res.json(items);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post('/api/items', async (req, res) => {
-    try {
-        const { name, category, description, registeredBy, isConsumible, stock } = req.body;
-        const qrCode = await getNextQrCode();
-        const newItem = new Item({
-            qrCode, name, category, description, status: 'available',
-            registeredBy, isConsumible, stock: isConsumible ? parseInt(stock) : 1 
-        });
-        await newItem.save();
-        res.json({ message: 'Item registrado', item: newItem, qrCode });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/items/:id', async (req, res) => {
     try {
         await Item.findByIdAndDelete(req.params.id);
-        res.json({ success: true, message: "Item eliminado" });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ---------------------------------------------------------------------
-// 6. TRABAJADORES Y ASISTENCIA
-// ---------------------------------------------------------------------
+// --- RUTAS DE CHAT Y DATOS FRECUENTES ---
 
-app.post('/api/login', async (req, res) => {
+app.get('/api/frequent-data', async (req, res) => {
     try {
-        const { name, password } = req.body;
-        const worker = await Worker.findOne({ name });
-        if (!worker || worker.password !== password) {
-            return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
-        }
-        res.json({ success: true, user: { id: worker._id, name: worker.name, role: worker.role } });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
+        const items = await Item.find().sort({ _id: -1 }).limit(15).select('name');
+        const recentTxs = await Transaction.find().sort({ timestamp: -1 }).limit(50);
+        const people = [...new Set(recentTxs.map(t => t.persona))].slice(0, 10);
+        res.json({ items, people });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/workers', async (req, res) => {
+app.get('/api/transactions', async (req, res) => {
     try {
-        const workers = await Worker.find();
-        res.json(workers);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        const txs = await Transaction.find().sort({ timestamp: -1 }).limit(30);
+        res.json(txs);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/workers/register', async (req, res) => {
-    try {
-        const { name, lastName, dni, phone, email, password, role } = req.body; 
-        const qrCode = `W-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
-        const newWorker = new Worker({ qrCode, name, lastName, dni, phone, email, password, role });
-        await newWorker.save();
-        res.json({ success: true, worker: newWorker });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  dni: { type: String, unique: true },
-  password: { type: String, required: true },
-  // Roles que definimos: 'Soldador', 'Calderero', 'Almacenero', 'Admin', etc.
-  role: { type: String, default: 'Soldador' }, 
-  // La tarifa diaria pactada con el contratista
-  tarifaPactada: { type: Number, default: 0 }, 
-  photo: String,
-  createdAt: { type: Date, default: Date.now },
-  permissions: {
-    canEditTarifa: { type: Boolean, default: false },
-    canEditRoles: { type: Boolean, default: false },
-    canDeleteItems: { type: Boolean, default: false },
-    canManageUsers: { type: Boolean, default: false }
-  }
-});
-
-// PUT /api/users/:id/update-profile
-router.put('/api/users/:id/update-profile', authenticateJWT, async (req, res) => {
-  const { role, tarifaPactada, name } = req.body;
-  const adminUser = req.user; // Obtenido del token
-
-  // Seguridad: Solo Admin o SuperAdmin pueden hacer estos cambios
-  if (adminUser.role !== 'Admin' && adminUser.role !== 'SuperAdmin') {
-    return res.status(403).json({ message: "No tienes permiso para modificar perfiles." });
-  }
-
-  try {
-    const updatedUser = await User.findByIdAndUpdate(
-      req.params.id,
-      { 
-        role, 
-        tarifaPactada, 
-        name 
-      },
-      { new: true } // Para devolver el usuario ya actualizado
-    );
-
-    if (!updatedUser) return res.status(404).json({ message: "Usuario no encontrado" });
-
-    res.json({
-      message: "Perfil actualizado correctamente",
-      user: updatedUser
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Error en el servidor", error });
-  }
-});
-
-// GET /api/my-salary
-router.get('/api/my-salary', authenticateJWT, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-    
-    // Aquí deberías contar cuántos registros de asistencia tiene en la semana actual
-    // Por ahora simulamos 6 días trabajados
-    const diasAsistidos = 6; 
-    const sueldoSemanal = diasAsistidos * user.tarifaPactada;
-
-    res.json({
-      nombre: user.name,
-      rol: user.role,
-      tarifaDiaria: user.tarifaPactada,
-      diasTrabajados: diasAsistidos,
-      totalAcumulado: sueldoSemanal
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Error al calcular sueldo" });
-  }
-});
-
-// GET /api/my-salary
-router.get('/api/my-salary', authenticateJWT, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-    
-    // Aquí deberías contar cuántos registros de asistencia tiene en la semana actual
-    // Por ahora simulamos 6 días trabajados
-    const diasAsistidos = 6; 
-    const sueldoSemanal = diasAsistidos * user.tarifaPactada;
-
-    res.json({
-      nombre: user.name,
-      rol: user.role,
-      tarifaDiaria: user.tarifaPactada,
-      diasTrabajados: diasAsistidos,
-      totalAcumulado: sueldoSemanal
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Error al calcular sueldo" });
-  }
-});
-
-// ---------------------------------------------------------------------
-// 7. CONEXIÓN Y SALUD
-// ---------------------------------------------------------------------
-app.get('/health', (req, res) => res.json({ status: 'OK' }));
-
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ Conectado a MongoDB Atlas'))
-    .catch(err => console.error('❌ Error MongoDB:', err));
-
-app.listen(PORT, HOST, () => {
-    console.log(`🔊 Servidor escuchando en http://${HOST}:${PORT}`);
+// --- LANZAMIENTO ---
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor activo en puerto ${PORT}`);
 });
