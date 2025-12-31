@@ -6,13 +6,14 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
 // --- CONEXIÓN A MONGODB ---
 
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log("✅ MongoDB Conectado version auto deplit ESM)"))
+    .then(() => console.log("✅ MongoDB Conectado version auto ESM)"))
     .catch(err => console.error("❌ Error de conexión:", err));
 // --- MODELOS DE DATOS ---
 
