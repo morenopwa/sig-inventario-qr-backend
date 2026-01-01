@@ -45,8 +45,8 @@ router.delete('/:id', async (req, res) => {
 
 router.post('/login', async (req, res) => {
     try {
-        const { lastName, dni } = req.body;
-        const user = await User.findOne({ lastName: lastName.trim(), dni: dni.trim() });
+        const { lastName, password } = req.body;
+        const user = await User.findOne({ lastName: lastName.trim(), password: password.trim() });
         if (user) {
             res.json({ success: true, user: { 
                 _id: user._id, 
