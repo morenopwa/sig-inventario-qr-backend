@@ -27,20 +27,6 @@ mongoose.connect(process.env.MONGODB_URI)
     .catch(err => console.error("❌ Error de conexión:", err));
 // --- MODELOS DE DATOS ---
 
-const ItemSchema = new mongoose.Schema({
-    qrCode: { type: String, unique: true },
-    name: { type: String, required: true, uppercase: true },
-    category: { type: String, default: 'General' },
-    stock: { type: Number, default: 0 },
-    history: [{
-        action: String,
-        quantity: Number,
-        user: String,
-        timestamp: { type: Date, default: Date.now }
-    }]
-});
-const Item = mongoose.model('Item', ItemSchema);
-
 const TransactionSchema = new mongoose.Schema({
 
     cantidad: Number,

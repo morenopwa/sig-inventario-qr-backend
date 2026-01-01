@@ -1,9 +1,9 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import Item from '../models/Item.js';
 
 const router = express.Router();
-// Usamos mongoose.model para evitar problemas de importación circular
-const Item = mongoose.model('Item');
+
 const Transaction = mongoose.model('Transaction');
 
 // POST /api/inventory/scan

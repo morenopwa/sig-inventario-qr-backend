@@ -1,49 +1,18 @@
-// models/Item.js (CÓDIGO AÑADIDO Y MODIFICADO)
-
 import mongoose from 'mongoose';
 
-const itemSchema = new mongoose.Schema({
-  qrCode: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  name: {
-    type: String,
-    required: true
-  },
-  category: {
-    type: String,
-    required: true
-  },
-  description: {
-    type: String,
-    default: 'Sin descripción' // Lo hice default para simplificar el registro
-  },
-  status: {
-    type: String,
-    // ✅ AÑADIDO EL ESTADO 'repair' (Reparación)
-    enum: ['new', 'available', 'borrowed', 'repair'], 
-    default: 'new'
-  },
-  // 🔑 NUEVO CAMPO: ¿Quién lo tiene AHORA?
-  currentHolder: {
-    type: String,
-    default: null
-  },
-  // 🔑 NUEVO CAMPO: Fecha del último préstamo
-  loanDate: {
-    type: Date,
-    default: null
-  },
-  registeredBy: {
-    type: String,
-    required: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+const ItemSchema = new mongoose.Schema({
+    qrCode: { type: String, unique: true },
+    name: { type: String, required: true, uppercase: true },
+    category: { type: String, default: 'General' },
+    stock: { type: Number, default: 0 },
+    history: [{
+        action: String,
+        quantity: Number,
+        user: String,
+        timestamp: { type: Date, default: Date.now }
+    }]
 });
 
-export default mongoose.model('Item', itemSchema);
+// Exportamos el modelo
+const Item = mongoose.model('Item', ItemSchema);
+export default Item;
