@@ -26,26 +26,7 @@ app.use('/api/users', userRoutes);
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log("✅ Servidor Modular Conectado"))
     .catch(err => console.error("❌ Error de conexión:", err));
-// --- MODELOS DE DATOS ---
 
-const TransactionSchema = new mongoose.Schema({
-
-    cantidad: Number,
-    itemName: { type: String, uppercase: true },
-    persona: String,
-    tipo: String, 
-    timestamp: { type: Date, default: Date.now }
-    
-});
-const Transaction = mongoose.model('Transaction', TransactionSchema);
-
-const UserSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    password: { type: String, required: true }, 
-    role: { type: String, default: 'Operario' },
-    sueldoBase: { type: Number, default: 0 }
-});
-const User = mongoose.model('User', UserSchema);
 
 // --- MIDDLEWARE DE AUTENTICACIÓN (SIMPLIFICADO PARA ESTA ETAPA) ---
 // Si necesitas JWT estricto, aquí deberías validar el token. 
