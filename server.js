@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import inventoryRoutes from './routes/inventory.js';
+import salaryRoutes from './routes/salary.js';
+import userRoutes from './routes/users.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,11 +17,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/salary', salaryRoutes);
+app.use('/api/users', userRoutes);
 // --- CONEXIÓN A MONGODB ---
 
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log("✅ MongoDB Conectado version auto ESM)"))
+    .then(() => console.log("✅ Servidor Modular Conectado"))
     .catch(err => console.error("❌ Error de conexión:", err));
 // --- MODELOS DE DATOS ---
 
@@ -66,57 +71,8 @@ const authenticateJWT = (req, res, next) => {
 // --- VARIABLE PARA EVITAR DUPLICADOS ---
 let lastRequest = { time: 0, body: "" };
 
-// --- RUTAS DE USUARIOS (GESTIÓN DE TRABAJADORES) ---
 
-// Obtener todos los usuarios
-app.get('/api/users', async (req, res) => {
-    try {
-        const users = await User.find().select('-password');
-        res.json(users);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
-// Crear nuevo usuario (Trabajador)
-app.post('/api/users', async (req, res) => {
-    try {
-        const newUser = new User(req.body);
-        await newUser.save();
-        res.status(201).json({ success: true, user: newUser });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Actualizar perfil (La ruta que te daba error)
-app.put('/api/users/:id/update-profile', authenticateJWT, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const updatedUser = await User.findByIdAndUpdate(id, req.body, { new: true });
-        res.json({ success: true, user: updatedUser });
-    } catch (err) {
-        res.status(500).json({ error: "Error al actualizar perfil" });
-    }
-});
-
-// Eliminar usuario
-app.delete('/api/users/:id', async (req, res) => {
-    try {
-        await User.findByIdAndDelete(req.params.id);
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// --- RUTAS DE AUTENTICACIÓN ---
-
-app.post('/api/login', async (req, res) => {
-    try {
-        const { name, password } = req.body;
-        const user = await User.findOne({ name: name.trim(), password: password });
-        if (user) {
-            res.json({ success: true, user: { _id: user._id, name: user.name, role: user.role } });
-        } else {
-            res.status(401).json({ success: false, message: "Nombre o PIN incorrectos" });
-        }
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 // --- RUTA DE TRANSACCIONES (CON AUTO-REGISTRO Y ANTI-DUPLICADOS) ---
 

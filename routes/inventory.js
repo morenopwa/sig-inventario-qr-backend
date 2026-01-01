@@ -1,0 +1,32 @@
+import express from 'express';
+import mongoose from 'mongoose';
+
+const router = express.Router();
+// Usamos mongoose.model para evitar problemas de importación circular
+const Item = mongoose.model('Item');
+const Transaction = mongoose.model('Transaction');
+
+// POST /api/inventory/scan
+router.post('/scan', async (req, res) => {
+    try {
+        const { qrCode } = req.body;
+        const item = await Item.findOne({ qrCode });
+        if (!item) return res.json({ status: 'new', message: 'No registrado' });
+        
+        res.json({ status: 'success', item });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/inventory/items
+router.get('/items', async (req, res) => {
+    try {
+        const items = await Item.find().sort({ name: 1 });
+        res.json(items);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+export default router;
