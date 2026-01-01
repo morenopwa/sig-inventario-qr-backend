@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import Item from '../models/Item.js';
-
+import Transaction from '../models/Transaction.js'; // 👈 IMPORTA ESTO AQUÍ
 const router = express.Router();
 
 const Transaction = mongoose.model('Transaction');
