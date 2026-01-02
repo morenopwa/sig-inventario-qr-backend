@@ -44,6 +44,12 @@ const UserSchema = new mongoose.Schema({
     sueldoBase: { 
         type: Number, default: 0
      },
+
+     attendance: [{
+        date: String,
+        timestamp: Date,
+        type: String
+    }],
         
     fechaIngreso: { 
         type: Date 
