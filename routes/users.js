@@ -19,6 +19,10 @@ router.post('/asistencia', async (req, res) => {
             return res.status(404).json({ message: "Trabajador no encontrado" });
         }
 
+        if (!user.attendance || !Array.isArray(user.attendance)) {
+            user.attendance = []; 
+        }
+
         // --- SOLUCIÓN AL ERROR ---
         // Si el usuario no tiene el campo attendance, lo creamos como un array vacío
         if (!user.attendance) {
