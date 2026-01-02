@@ -32,23 +32,21 @@ const UserSchema = new mongoose.Schema({
         required: true,
         minlength: [8, 'El DNI debe tener al menos 8 dígitos']
     }, 
-    cargo: { 
+    
+    tipo: { 
         type: String, 
-        enum: ['SuperAdmin','Admin','Prevencionista','Calderero','Almacenero', 'Maestro calderero','Maniobrista','Residente'],
-        default: 'Usuario' 
+        enum: ['Trabajador', 'Externo', 'Visita'], 
+        default: 'Externo'
     },
+    
+    cargo: { type: String }, // Almacenero, Calderero
+        sueldoBase: { type: Number, default: 0 },
+        fechaIngreso: { type: Date },
+
     nivelAcceso: { 
         type: String, 
         enum: ['SuperAdmin', 'Admin', 'Usuario'], 
         default: 'Usuario' 
-    },
-    sueldoBase: { 
-        type: Number, 
-        default: 0 
-    },
-    tarifaDiaria: {
-        type: Number,
-        default: 0
     }
 }, { 
     timestamps: true // Crea automáticamente campos "createdAt" y "updatedAt"
