@@ -165,16 +165,6 @@ router.post('/return', async (req, res) => {
   }
 });
 
-// GET /api/items - Listar todos los items
-router.get('/items', async (req, res) => {
-  try {
-    const items = await Item.find().sort({ createdAt: -1 });
-    res.json(items);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // GET /api/history/:id - Historial de un item
 router.get('/history/:id', async (req, res) => {
   try {

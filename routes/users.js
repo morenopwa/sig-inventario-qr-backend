@@ -23,33 +23,30 @@ router.post('/asistencia', async (req, res) => {
             user.attendance = []; 
         }
 
-        // --- SOLUCIÓN AL ERROR ---
-        // Si el usuario no tiene el campo attendance, lo creamos como un array vacío
-        if (!user.attendance) {
-            user.attendance = [];
-        }
+        const hoy = new Date().toISOString().split('T')[0];
 
-        const ahora = new Date();
-        const hoy = ahora.toISOString().split('T')[0];
+        // Buscar si ya tiene una asistencia iniciada hoy que no tenga hora de salida
+    let registroHoy = user.attendance.find(a => a.date === hoy && !a.exitTime);
 
-        // Agregamos la asistencia
+    if (!registroHoy) {
+        // ES UNA ENTRADA
         user.attendance.push({
-            date: new Date().toISOString().split('T')[0],
-            timestamp: new Date(),
-            type: 'scan_qr'
+            date: hoy,
+            entryTime: new Date(),
+            exitTime: null,
+            observations: ""
         });
-
-        // Guardamos los cambios en MongoDB
         await user.save();
-        
-        console.log(`✅ Asistencia registrada para: ${user.name}`);
-        res.json({ success: true, message: user.name });
-
-    } catch (error) {
-        console.error("❌ Error en servidor:", error);
-        res.status(500).json({ error: "Error interno al guardar asistencia" });
+        return res.json({ success: true, message: `Entrada registrada: ${user.name}` });
+    } else {
+        // ES UNA SALIDA
+        registroHoy.exitTime = new Date();
+        await user.save();
+        return res.json({ success: true, message: `Salida registrada: ${user.name}` });
     }
 });
+
+
 
 // --- 2. LOGIN OPTIMIZADO ---
 router.post('/login', async (req, res) => {

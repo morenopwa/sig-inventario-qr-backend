@@ -24,5 +24,14 @@ router.get('/items', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// GET /api/items - Listar todos los items
+router.get('/items', async (req, res) => {
+  try {
+    const items = await Item.find().sort({ createdAt: -1 });
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;
