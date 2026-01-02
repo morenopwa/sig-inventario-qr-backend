@@ -9,8 +9,7 @@ import inventoryRoutes from './routes/inventory.js';
 import salaryRoutes from './routes/salary.js';
 import userRoutes from './routes/users.js';
 import Transaction from './models/Transaction.js'; 
-import Item from './models/Item.js'; // <--- AGREGAR ESTA LÍNEA
-import inventoryRoutes from './routes/inventory.js';
+import Item from './models/Item.js'; 
 import salaryRoutes from './routes/salary.js';
 import userRoutes from './routes/users.js';
 
@@ -48,7 +47,7 @@ let lastRequest = { time: 0, body: "" };
 
 // --- RUTA DE TRANSACCIONES (CON AUTO-REGISTRO Y ANTI-DUPLICADOS) ---
 
-app.post('/api/transactions', async (req, res) => {
+app.post('/ns', async (req, res) => {
     const currentReq = JSON.stringify(req.body);
     const now = Date.now();
     
@@ -124,7 +123,7 @@ app.get('/api/frequent-data', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/transactions', async (req, res) => {
+app.get('/ns', async (req, res) => {
     try {
         const txs = await Transaction.find().sort({ timestamp: -1 }).limit(30);
         res.json(txs);
