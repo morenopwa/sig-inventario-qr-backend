@@ -9,38 +9,41 @@ const router = express.Router();
 // routes/users.js
 router.post('/asistencia', async (req, res) => {
     try {
-        const { workerId } = req.body; // Este es el número que llega del escáner (ej: 23456789)
-        console.log("🔍 Buscando trabajador con dato:", workerId);
+        const { workerId } = req.body; // Aquí llega "98765432"
+        console.log("🔍 Buscando DNI:", workerId);
 
-        // IMPORTANTE: Buscamos en 'dni' porque 'workerId' no existe en tu modelo
-        const user = await User.findOne({ 
-            $or: [
-                { dni: workerId },     // Busca coincidencia en la columna DNI
-                { qrCode: workerId }   // Por si acaso también en qrCode
-            ] 
-        });
+        // Buscamos al usuario por DNI
+        const user = await User.findOne({ dni: workerId });
 
         if (!user) {
-            console.log("❌ No se encontró nadie con ese DNI");
-            return res.status(404).json({ message: "Trabajador no encontrado en la base de datos" });
+            return res.status(404).json({ message: "Trabajador no encontrado" });
         }
 
-        // Si lo encuentra, registramos la asistencia
+        // --- SOLUCIÓN AL ERROR ---
+        // Si el usuario no tiene el campo attendance, lo creamos como un array vacío
+        if (!user.attendance) {
+            user.attendance = [];
+        }
+
         const ahora = new Date();
+        const hoy = ahora.toISOString().split('T')[0];
+
+        // Agregamos la asistencia
         user.attendance.push({
-            date: ahora.toISOString().split('T')[0],
+            date: hoy,
             timestamp: ahora,
             type: 'scan_qr'
         });
 
+        // Guardamos los cambios en MongoDB
         await user.save();
-        console.log("✅ Asistencia marcada para:", user.name);
         
+        console.log(`✅ Asistencia registrada para: ${user.name}`);
         res.json({ success: true, message: user.name });
 
     } catch (error) {
-        console.error("error en /asistencia:", error);
-        res.status(500).json({ error: error.message });
+        console.error("❌ Error en servidor:", error);
+        res.status(500).json({ error: "Error interno al guardar asistencia" });
     }
 });
 
