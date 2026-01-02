@@ -46,12 +46,12 @@ router.delete('/:id', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { lastName, password } = req.body;
-        
+
         // 1. Buscamos SOLO por apellido para ver si existe
         const existeApellido = await User.findOne({ lastName: lastName.trim() });
         
         if (!existeApellido) {
-            console.log(`❌ El apellido "${lastName}" no existe en la columna lastName`);
+            console.log(`❌ El apellido "${lastName}" no existe en la columna lastNameGEGE`);
         } else {
             console.log(`✅ Apellido encontrado. Su password en DB es: ${existeApellido.password}`);
             console.log(`🤔 Password ingresado: ${password}`);

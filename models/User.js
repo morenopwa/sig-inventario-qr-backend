@@ -4,7 +4,7 @@ const UserSchema = new mongoose.Schema({
     name: { 
         type: String, 
         required: true,
-        trim: true // Borra espacios vacíos al inicio y final
+        trim: true
     },
     lastName: { 
         type: String, 
@@ -12,7 +12,12 @@ const UserSchema = new mongoose.Schema({
         trim: true
     },
     dni: { 
-        type: Number, 
+        type: String, unique: true,
+        required: true,
+        trim: true
+    },
+    mail: { 
+        type: String, unique: true,
         required: true,
         trim: true
     },
@@ -27,10 +32,15 @@ const UserSchema = new mongoose.Schema({
         required: true,
         minlength: [8, 'El DNI debe tener al menos 8 dígitos']
     }, 
-    role: { 
+    cargo: { 
         type: String, 
         enum: ['SuperAdmin','Admin','Prevencionista','Calderero','Almacenero', 'Maestro calderero','Maniobrista','Residente'],
-        default: 'Trabajador' 
+        default: 'Usuario' 
+    },
+    nivelAcceso: { 
+        type: String, 
+        enum: ['SuperAdmin', 'Admin', 'Usuario'], 
+        default: 'Usuario' 
     },
     sueldoBase: { 
         type: Number, 
@@ -38,7 +48,7 @@ const UserSchema = new mongoose.Schema({
     },
     tarifaDiaria: {
         type: Number,
-        default: 50 // Por si usas este campo para el cálculo de pagos
+        default: 0
     }
 }, { 
     timestamps: true // Crea automáticamente campos "createdAt" y "updatedAt"
