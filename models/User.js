@@ -37,9 +37,17 @@ const UserSchema = new mongoose.Schema({
         default: 'Externo'
     },
 
-    rol: { type: String }, // Almacenero, Calderero
-        sueldoBase: { type: Number, default: 0 },
-        fechaIngreso: { type: Date },
+    rol: { 
+        type: String 
+    }, 
+        
+    sueldoBase: { 
+        type: Number, default: 0
+     },
+        
+    fechaIngreso: { 
+        type: Date 
+    },
 
     nivelAcceso: { 
         type: String, 
