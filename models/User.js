@@ -18,12 +18,10 @@ const UserSchema = new mongoose.Schema({
     },
     mail: { 
         type: String, unique: true,
-        required: true,
         trim: true
     },
     phone: { 
-        type: Number, 
-        required: true,
+        type: Number,
         trim: true,
         minlength: [9, 'El phone debe tener al menos 9 dígitos']
     },
