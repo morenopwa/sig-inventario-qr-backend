@@ -1,26 +1,32 @@
 import express from 'express';
 import mongoose from 'mongoose';
+// IMPORTANTE: Importa el modelo directamente para evitar errores de "MissingSchema"
+import User from '../models/User.js'; 
 
 const router = express.Router();
-const User = mongoose.model('User');
 
-// Ruta para registrar asistencia mediante QR
+// --- 1. RUTA DE ASISTENCIA INTELIGENTE ---
 router.post('/asistencia', async (req, res) => {
     try {
         const { workerId } = req.body;
-        // Buscamos al usuario por su ID de trabajador o QR
-        const user = await User.findOne({ $or: [{ workerId: workerId }, { qrCode: workerId }] });
+        
+        // Buscamos por ID de trabajador, QR o DNI (para que lea el 46704127)
+        const user = await User.findOne({ 
+            $or: [
+                { workerId: workerId }, 
+                { qrCode: workerId }, 
+                { dni: workerId }
+            ] 
+        });
 
         if (!user) {
             return res.status(404).json({ message: "Trabajador no encontrado" });
         }
 
-        // Lógica de entrada/salida simple
         const ahora = new Date();
         const hoy = ahora.toISOString().split('T')[0];
 
-        // Aquí podrías guardar en una colección de 'Attendance' 
-        // o en un array dentro del usuario. Ejemplo simple:
+        // Registramos el movimiento
         user.attendance.push({
             date: hoy,
             timestamp: ahora,
@@ -28,14 +34,44 @@ router.post('/asistencia', async (req, res) => {
         });
 
         await user.save();
-        res.json({ success: true, message: `Asistencia registrada: ${user.name}` });
+        
+        // Respondemos con el nombre para que el Frontend diga "Bienvenido Juan"
+        res.json({ success: true, message: user.name });
+        
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
+// --- 2. LOGIN OPTIMIZADO ---
+router.post('/login', async (req, res) => {
+    try {
+        const { lastName, password } = req.body;
+        const lName = lastName.trim();
+        const pass = password.trim();
 
-// Obtener todos los usuarios
+        const user = await User.findOne({ lastName: lName, password: pass });
+
+        if (user) {
+            res.json({ 
+                success: true, 
+                user: { 
+                    _id: user._id, 
+                    name: user.name, 
+                    lastName: user.lastName, 
+                    rol: user.rol,
+                    nivelAcceso: user.nivelAcceso 
+                } 
+            });
+        } else {
+            res.status(401).json({ success: false, message: "Datos incorrectos" });
+        }
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- 3. CRUD BÁSICO ---
+
+// Obtener todos
 router.get('/', async (req, res) => {
     try {
         const users = await User.find().select('-password');
@@ -43,7 +79,7 @@ router.get('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Crear nuevo usuario (Trabajador)
+// Crear trabajador
 router.post('/', async (req, res) => {
     try {
         const newUser = new User(req.body);
@@ -52,64 +88,12 @@ router.post('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Actualizar perfil (La ruta que te daba error)
-router.put('/:id/update-profile', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const updatedUser = await User.findByIdAndUpdate(id, req.body, { new: true });
-        res.json({ success: true, user: updatedUser });
-    } catch (err) {
-        res.status(500).json({ error: "Error al actualizar perfil" });
-    }
-});
-
-// Eliminar usuario
+// Eliminar
 router.delete('/:id', async (req, res) => {
     try {
         await User.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// --- RUTAS DE AUTENTICACIÓN ---
-
-router.post('/login', async (req, res) => {
-    try {
-        const { lastName, password } = req.body;
-
-        // 1. Buscamos SOLO por apellido para ver si existe
-        const existeApellido = await User.findOne({ lastName: lastName.trim() });
-        
-        if (!existeApellido) {
-            console.log(`❌ El apellido "${lastName}" no existe en la columna lastName`);
-        } else {
-            console.log(`✅ Apellido encontrado.`);
-        }
-
-        const user = await User.findOne({
-             lastName: lastName.trim(),
-             password: password.trim()});
-
-        if (user) {
-            res.json({ success: true, user: { 
-                _id: user._id, 
-                name: user.name, 
-                lastName: user.lastName, 
-                dni: user.dni, 
-                phone: user.phone,
-                mail:user.mail,
-                tipo:user.tipo,
-                rol: user.rol,  
-                nivelAcceso: user.nivelAcceso,
-                sueldoBase: user.sueldoBase
-                
-            } });
-        } else {
-            console.log("❌ Usuario no encontrado en la DB");
-            res.status(401).json({ success: false, message: "Nombre o PIN incorrectos" });
-        }
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 
 export default router;
