@@ -46,9 +46,9 @@ const UserSchema = new mongoose.Schema({
      },
 
      attendance: [{
-        date: String,
-        timestamp: Date,
-        type: String
+        date: { type: String },
+        timestamp: { type: Date },
+        type: { type: String }
     }],
         
     fechaIngreso: { 

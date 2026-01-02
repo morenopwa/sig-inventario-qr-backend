@@ -34,8 +34,8 @@ router.post('/asistencia', async (req, res) => {
 
         // Agregamos la asistencia
         user.attendance.push({
-            date: hoy,
-            timestamp: ahora,
+            date: new Date().toISOString().split('T')[0],
+            timestamp: new Date(),
             type: 'scan_qr'
         });
 
