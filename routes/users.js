@@ -10,12 +10,10 @@ router.post('/asistencia', async (req, res) => {
     try {
         const { workerId } = req.body;
         
-        // Buscamos por ID de trabajador, QR o DNI (para que lea el 46704127)
         const user = await User.findOne({ 
             $or: [
-                { workerId: workerId }, 
-                { qrCode: workerId }, 
-                { dni: workerId }
+                { dni: workerId },    // <--- Buscará el "23456789" aquí
+                { qrCode: workerId }  // <--- Y aquí
             ] 
         });
 
