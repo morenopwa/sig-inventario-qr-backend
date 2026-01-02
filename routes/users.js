@@ -69,7 +69,7 @@ router.post('/login', async (req, res) => {
                 phone: user.phone,
                 mail:user.mail,
                 tipo:user.tipo,
-                cargo: user.cargo,  
+                rol: user.rol,  
                 nivelAcceso: user.nivelAcceso,
                 sueldoBase: user.sueldoBase
                 

@@ -38,8 +38,8 @@ const UserSchema = new mongoose.Schema({
         enum: ['Trabajador', 'Externo', 'Visita'], 
         default: 'Externo'
     },
-    
-    cargo: { type: String }, // Almacenero, Calderero
+
+    rol: { type: String }, // Almacenero, Calderero
         sueldoBase: { type: Number, default: 0 },
         fechaIngreso: { type: Date },
 
