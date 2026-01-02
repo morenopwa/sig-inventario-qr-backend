@@ -51,10 +51,9 @@ router.post('/login', async (req, res) => {
         const existeApellido = await User.findOne({ lastName: lastName.trim() });
         
         if (!existeApellido) {
-            console.log(`❌ El apellido "${lastName}" no existe en la columna lastNameGEGE`);
+            console.log(`❌ El apellido "${lastName}" no existe en la columna lastName`);
         } else {
-            console.log(`✅ Apellido encontrado. Su password en DB es: ${existeApellido.password}`);
-            console.log(`🤔 Password ingresado: ${password}`);
+            console.log(`✅ Apellido encontrado.`);
         }
 
         const user = await User.findOne({
