@@ -4,6 +4,36 @@ import mongoose from 'mongoose';
 const router = express.Router();
 const User = mongoose.model('User');
 
+// Ruta para registrar asistencia mediante QR
+router.post('/asistencia', async (req, res) => {
+    try {
+        const { workerId } = req.body;
+        // Buscamos al usuario por su ID de trabajador o QR
+        const user = await User.findOne({ $or: [{ workerId: workerId }, { qrCode: workerId }] });
+
+        if (!user) {
+            return res.status(404).json({ message: "Trabajador no encontrado" });
+        }
+
+        // Lógica de entrada/salida simple
+        const ahora = new Date();
+        const hoy = ahora.toISOString().split('T')[0];
+
+        // Aquí podrías guardar en una colección de 'Attendance' 
+        // o en un array dentro del usuario. Ejemplo simple:
+        user.attendance.push({
+            date: hoy,
+            timestamp: ahora,
+            type: 'scan_qr'
+        });
+
+        await user.save();
+        res.json({ success: true, message: `Asistencia registrada: ${user.name}` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 // Obtener todos los usuarios
 router.get('/', async (req, res) => {
