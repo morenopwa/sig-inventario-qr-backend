@@ -23,7 +23,7 @@ router.post('/', async (req, res) => {
 });
 
 // Actualizar perfil (La ruta que te daba error)
-router.put('/:id/update-profile', authenticateJWT, async (req, res) => {
+router.put('/:id/update-profile', async (req, res) => {
     try {
         const { id } = req.params;
         const updatedUser = await User.findByIdAndUpdate(id, req.body, { new: true });
