@@ -46,16 +46,20 @@ router.delete('/:id', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { lastName, password } = req.body;
-        const user = await User.findOne({ lastName: lastName.trim(), password: password.trim() });
+        const user = await User.findOne({
+             lastName: lastName.trim(),
+             password: password.trim()});
+
         if (user) {
             res.json({ success: true, user: { 
                 _id: user._id, 
                 name: user.name, 
-                lastName: user.name, 
-                dni: user.name, 
-                phone: user.role,
+                lastName: user.lastName, 
+                dni: user.dni, 
+                phone: user.phone,
                 role: user.role,
-
+                sueldoBase: user.sueldoBase
+                
             } });
         } else {
             res.status(401).json({ success: false, message: "Nombre o PIN incorrectos" });
