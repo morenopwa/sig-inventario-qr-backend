@@ -55,5 +55,24 @@ app.get('/api/transactions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Ruta para obtener datos frecuentes (frecuencia de uso)
+app.get('/api/frequent-data', async (req, res) => {
+    try {
+        // Esto busca los 5 items más repetidos en las transacciones
+        const items = await Transaction.aggregate([
+            { $group: { _id: "$itemName", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 5 }
+        ]);
+        
+        // Formateamos para el frontend
+        const formattedItems = items.map(i => ({ name: i._id }));
+        
+        res.json({ items: formattedItems, people: [] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Servidor en puerto ${PORT}`));

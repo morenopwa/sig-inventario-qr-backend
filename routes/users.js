@@ -6,37 +6,40 @@ import User from '../models/User.js';
 const router = express.Router();
 
 // --- 1. RUTA DE ASISTENCIA INTELIGENTE ---
+// routes/users.js
 router.post('/asistencia', async (req, res) => {
     try {
-        const { workerId } = req.body;
-        
+        const { workerId } = req.body; // Este es el número que llega del escáner (ej: 23456789)
+        console.log("🔍 Buscando trabajador con dato:", workerId);
+
+        // IMPORTANTE: Buscamos en 'dni' porque 'workerId' no existe en tu modelo
         const user = await User.findOne({ 
             $or: [
-                { dni: workerId },    // <--- Buscará el "23456789" aquí
-                { qrCode: workerId }  // <--- Y aquí
+                { dni: workerId },     // Busca coincidencia en la columna DNI
+                { qrCode: workerId }   // Por si acaso también en qrCode
             ] 
         });
 
         if (!user) {
-            return res.status(404).json({ message: "Trabajador no encontrado" });
+            console.log("❌ No se encontró nadie con ese DNI");
+            return res.status(404).json({ message: "Trabajador no encontrado en la base de datos" });
         }
 
+        // Si lo encuentra, registramos la asistencia
         const ahora = new Date();
-        const hoy = ahora.toISOString().split('T')[0];
-
-        // Registramos el movimiento
         user.attendance.push({
-            date: hoy,
+            date: ahora.toISOString().split('T')[0],
             timestamp: ahora,
             type: 'scan_qr'
         });
 
         await user.save();
+        console.log("✅ Asistencia marcada para:", user.name);
         
-        // Respondemos con el nombre para que el Frontend diga "Bienvenido Juan"
         res.json({ success: true, message: user.name });
-        
+
     } catch (error) {
+        console.error("error en /asistencia:", error);
         res.status(500).json({ error: error.message });
     }
 });
