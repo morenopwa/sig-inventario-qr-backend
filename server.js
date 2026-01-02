@@ -10,7 +10,6 @@ import salaryRoutes from './routes/salary.js';
 import userRoutes from './routes/users.js';
 import Transaction from './models/Transaction.js'; 
 import Item from './models/Item.js'; 
-import userRoutes from './routes/users.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
