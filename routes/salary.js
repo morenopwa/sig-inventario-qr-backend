@@ -1,10 +1,8 @@
 import express from 'express';
-import mongoose from 'mongoose';
 import User from '../models/User.js';
+import Transaction from '../models/Transaction.js';
 
 const router = express.Router();
-const User = mongoose.model('User');
-const Transaction = mongoose.model('Transaction');
 
 // GET /api/salary/:userId
 router.get('/:userId', async (req, res) => {
