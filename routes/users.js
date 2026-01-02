@@ -46,6 +46,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { lastName, password } = req.body;
+        console.log("Intentando login para:", lastName, "con clave:", password);
         const user = await User.findOne({
              lastName: lastName.trim(),
              password: password.trim()});
@@ -62,6 +63,7 @@ router.post('/login', async (req, res) => {
                 
             } });
         } else {
+            console.log("❌ Usuario no encontrado en la DB");
             res.status(401).json({ success: false, message: "Nombre o PIN incorrectos" });
         }
     } catch (err) { res.status(500).json({ error: err.message }); }
