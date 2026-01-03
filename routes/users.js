@@ -114,4 +114,41 @@ router.delete('/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.put('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = { ...req.body };
+
+        // 🛠️ Validación de seguridad para el campo mail
+        // Si el mail viene vacío o solo espacios, lo eliminamos del objeto
+        // para que MongoDB/Mongoose no lance error de duplicado por string vacío.
+        if (updateData.mail === "" || (updateData.mail && updateData.mail.trim() === "")) {
+            updateData.mail = undefined; 
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(
+            id, 
+            { $set: updateData }, 
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ message: "Usuario no encontrado" });
+        }
+
+        res.json(updatedUser);
+    } catch (error) {
+        console.error("Error al actualizar usuario:", error);
+        
+        // Manejo específico para error de duplicado (DNI o Mail)
+        if (error.code === 11000) {
+            return res.status(400).json({ 
+                message: "Error: El DNI o Correo ya están registrados por otro usuario." 
+            });
+        }
+        
+        res.status(500).json({ message: "Error interno del servidor" });
+    }
+});
+
 export default router;
