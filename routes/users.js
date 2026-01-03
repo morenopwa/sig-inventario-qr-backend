@@ -5,28 +5,6 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-// Este es el "cerebro" que decide dónde poner la hora
-const marcarAsistencia = async (dni) => {
-    const user = await User.findOne({ dni });
-    const hoy = new Date().toLocaleDateString(); // Ejemplo: "2/1/2026"
-
-    // Buscamos si ya existe un registro de hoy que le falte la salida
-    let registroExistente = user.attendance.find(a => a.date === hoy && !a.exitTime);
-
-    if (registroExistente) {
-        // Si ya entró hoy, este escaneo RELLENA la columna de salida
-        registroExistente.exitTime = new Date();
-    } else {
-        // Si no ha entrado hoy, este escaneo CREA una fila nueva con la entrada
-        user.attendance.push({
-            date: hoy,
-            entryTime: new Date(),
-            exitTime: null
-        });
-    }
-    await user.save();
-};
-
 // --- 1. RUTA DE ASISTENCIA INTELIGENTE ---
 // routes/users.js
 router.post('/asistencia', async (req, res) => {
@@ -56,7 +34,7 @@ router.post('/asistencia', async (req, res) => {
             date: hoy,
             entryTime: new Date(),
             exitTime: null,
-            observations: ""
+            observations: "Ingreso registrado vía QR"
         });
         await user.save();
         return res.json({ success: true, message: `Entrada registrada: ${user.name}` });
@@ -78,10 +56,8 @@ router.post('/asistencia', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { lastName, password } = req.body;
-        const lName = lastName.trim();
-        const pass = password.trim();
 
-        const user = await User.findOne({ lastName: lName, password: pass });
+        const user = await User.findOne({ lastName: lastName.trim(), password: password.trim() });
 
         if (user) {
             res.json({ 
@@ -100,12 +76,11 @@ router.post('/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- 3. CRUD BÁSICO ---
 
 // Obtener todos
 router.get('/', async (req, res) => {
     try {
-        const users = await User.find().select('-password');
+        const users = await User.find().select('-password').sort({ lastName: 1 });
         res.json(users);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
