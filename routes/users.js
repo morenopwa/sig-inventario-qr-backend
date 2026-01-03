@@ -2,77 +2,46 @@ import express from 'express';
 import mongoose from 'mongoose';
 // IMPORTANTE: Importa el modelo directamente para evitar errores de "MissingSchema"
 import User from '../models/User.js'; 
+import Attendance from '../models/Attendance.js';
 
 const router = express.Router();
 
 
 router.post('/asistencia', async (req, res) => {
-    // Aceptamos workerId (DNI o ID) desde el body
     const { workerId } = req.body;
+    const ahora = new Date();
+    const hoyPeru = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
     try {
-        if (!workerId) {
-            return res.status(400).json({ message: "No se recibió un código válido" });
-        }
+        // 1. Validar que el usuario existe
+        const user = await User.findOne({ $or: [{ dni: workerId }, { _id: workerId.length === 24 ? workerId : null }] });
+        if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
-        // 1. Buscar al usuario (por DNI o por ID de MongoDB)
-        const user = await User.findOne({ 
-            $or: [
-                { dni: workerId.toString().trim() }, 
-                { _id: (workerId.length === 24) ? workerId : null }
-            ].filter(condition => condition.dni || condition._id)
-        });
-
-        if (!user) {
-            return res.status(404).json({ message: "Trabajador no registrado" });
-        }
-
-        // 2. Obtener fecha de Perú (YYYY-MM-DD)
-        const ahora = new Date();
-        const hoyPeru = new Intl.DateTimeFormat('en-CA', {
-            timeZone: 'America/Lima',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-        }).format(ahora);
-
-        // 3. Inicializar el array de asistencia si no existe (Evita el Error 500)
-        if (!user.attendance) {
-            user.attendance = [];
-        }
-
-        // 4. Buscar registro de hoy
-        let registroHoy = user.attendance.find(a => a.date === hoyPeru);
+        // 2. Buscar si ya existe un registro de asistencia para este usuario HOY
+        let registroHoy = await Attendance.findOne({ worker: user._id, date: hoyPeru });
 
         if (!registroHoy) {
-            // REGISTRAR ENTRADA
-            user.attendance.push({
+            // ENTRADA: Crear nuevo documento en la colección Attendance
+            const nuevaAsistencia = new Attendance({
+                worker: user._id,
+                dni: user.dni,
                 date: hoyPeru,
-                entryTime: ahora,
-                observations: "Entrada QR"
+                entryTime: ahora
             });
-            await user.save();
-            return res.json({ success: true, message: "Entrada marcada" });
+            await nuevaAsistencia.save();
+            return res.json({ success: true, message: "Entrada registrada" });
         } 
         
         if (!registroHoy.exitTime) {
-            // REGISTRAR SALIDA
+            // SALIDA: Actualizar el documento existente
             registroHoy.exitTime = ahora;
-            // Forzamos a Mongoose a notar el cambio en el array
-            user.markModified('attendance');
-            await user.save();
-            return res.json({ success: true, message: "Salida marcada" });
+            await registroHoy.save();
+            return res.json({ success: true, message: "Salida registrada" });
         }
 
-        // Si ya tiene entrada y salida
-        return res.status(400).json({ message: "Ya registró entrada y salida hoy" });
-
+        return res.status(400).json({ message: "Ya marcó entrada y salida hoy" });
     } catch (error) {
-        console.error("ERROR EN BACKEND:", error);
-        res.status(500).json({ 
-            message: "Error interno en el servidor", 
-            details: error.message 
-        });
+        res.status(500).json({ message: "Error en el servidor" });
     }
 });
 
