@@ -88,10 +88,22 @@ router.get('/', async (req, res) => {
 // Crear trabajador
 router.post('/', async (req, res) => {
     try {
+        const { dni } = req.body;
+        const existingUser = await User.findOne({ dni });
+        if (existingUser) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `El DNI ${dni} ya pertenece a ${existingUser.name}` 
+            });
+        }
+
         const newUser = new User(req.body);
         await newUser.save();
         res.status(201).json({ success: true, user: newUser });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error("Error en POST /users:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
 });
 
 // Eliminar
