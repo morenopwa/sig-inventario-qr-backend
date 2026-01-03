@@ -5,48 +5,62 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-// --- 1. RUTA DE ASISTENCIA INTELIGENTE ---
-// routes/users.js
-router.post('/asistencia', async (req, res) => {
-    try {
-        const { workerId } = req.body; // Aquí llega "98765432"
-        console.log("🔍 Buscando DNI:", workerId);
 
-        // Buscamos al usuario por DNI
-        const user = await User.findOne({ dni: workerId });
+// RUTA POST: REGISTRAR ASISTENCIA (ENTRADA/SALIDA)
+router.post('/asistencia', async (req, res) => {
+    const { workerId } = req.body; // El QR envía el ID del usuario (o DNI)
+
+    try {
+        // 1. Buscar al usuario
+        // Usamos $or por si el QR envía el _id o el DNI
+        const user = await User.findOne({ 
+            $or: [{ _id: workerId }, { dni: workerId }] 
+        });
 
         if (!user) {
             return res.status(404).json({ message: "Trabajador no encontrado" });
         }
 
-        if (!user.attendance || !Array.isArray(user.attendance)) {
-            user.attendance = []; 
-        }
+        // 2. OBTENER HORA Y FECHA ACTUAL EN PERÚ
+        // Esto asegura que no importa donde esté el servidor, siempre use hora Lima
+        const ahora = new Date();
+        const opciones = { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' };
+        
+        // Genera "YYYY-MM-DD" para Perú
+        const [dia, mes, anio] = ahora.toLocaleDateString('es-PE', opciones).split('/');
+        const hoyPeruStr = `${anio}-${mes}-${dia}`; 
+        
+        // 3. BUSCAR SI YA TIENE REGISTRO HOY
+        // Buscamos dentro del array 'attendance' un objeto que tenga la fecha de hoy
+        if (!user.attendance) user.attendance = [];
+        let registroHoy = user.attendance.find(a => a.date === hoyPeruStr);
 
-        const hoy = new Date().toISOString().split('T')[0];
-
-        // Buscar si ya tiene una asistencia iniciada hoy que no tenga hora de salida
-    let registroHoy = user.attendance.find(a => a.date === hoy && !a.exitTime);
-
-    if (!registroHoy) {
-        // ES UNA ENTRADA
-        user.attendance.push({
-            date: hoy,
-            entryTime: new Date(),
-            exitTime: null,
-            observations: "Ingreso registrado vía QR"
+        if (!registroHoy) {
+            // A. NO TIENE ENTRADA: Creamos el registro del día
+            user.attendance.push({
+                date: hoyPeruStr,
+                entryTime: ahora, // Guardamos el objeto Date completo
+                observations: "Entrada registrada"
+            });
+            await user.save();
+            return res.status(200).json({ success: true, message: "Entrada registrada correctamente" });
+        } 
+        
+        if (!registroHoy.exitTime) {
+            // B. TIENE ENTRADA PERO NO SALIDA: Registramos salida
+            registroHoy.exitTime = ahora;
+            await user.save();
+            return res.status(200).json({ success: true, message: "Salida registrada correctamente" });
+        } 
+        
+        // C. YA TIENE AMBAS MARCAS
+        return res.status(400).json({ 
+            message: "El trabajador ya cuenta con registro de entrada y salida para hoy." 
         });
-        await user.save();
-        return res.json({ success: true, message: `Entrada registrada: ${user.name}` });
-    } else {
-        // ES UNA SALIDA
-        registroHoy.exitTime = new Date();
-        await user.save();
-        return res.json({ success: true, message: `Salida registrada: ${user.name}` });
-    }
+
     } catch (error) {
-        console.error("❌ Error en servidor:", error);
-        res.status(500).json({ error: "Error interno al guardar asistencia" });
+        console.error("Error en asistencia:", error);
+        res.status(500).json({ message: "Error interno del servidor" });
     }
 });
 
