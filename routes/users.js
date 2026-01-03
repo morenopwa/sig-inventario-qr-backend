@@ -5,6 +5,28 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
+// Este es el "cerebro" que decide dónde poner la hora
+const marcarAsistencia = async (dni) => {
+    const user = await User.findOne({ dni });
+    const hoy = new Date().toLocaleDateString(); // Ejemplo: "2/1/2026"
+
+    // Buscamos si ya existe un registro de hoy que le falte la salida
+    let registroExistente = user.attendance.find(a => a.date === hoy && !a.exitTime);
+
+    if (registroExistente) {
+        // Si ya entró hoy, este escaneo RELLENA la columna de salida
+        registroExistente.exitTime = new Date();
+    } else {
+        // Si no ha entrado hoy, este escaneo CREA una fila nueva con la entrada
+        user.attendance.push({
+            date: hoy,
+            entryTime: new Date(),
+            exitTime: null
+        });
+    }
+    await user.save();
+};
+
 // --- 1. RUTA DE ASISTENCIA INTELIGENTE ---
 // routes/users.js
 router.post('/asistencia', async (req, res) => {
@@ -43,6 +65,10 @@ router.post('/asistencia', async (req, res) => {
         registroHoy.exitTime = new Date();
         await user.save();
         return res.json({ success: true, message: `Salida registrada: ${user.name}` });
+    }
+    } catch (error) {
+        console.error("❌ Error en servidor:", error);
+        res.status(500).json({ error: "Error interno al guardar asistencia" });
     }
 });
 
