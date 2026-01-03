@@ -6,61 +6,73 @@ import User from '../models/User.js';
 const router = express.Router();
 
 
-// RUTA POST: REGISTRAR ASISTENCIA (ENTRADA/SALIDA)
 router.post('/asistencia', async (req, res) => {
-    const { workerId } = req.body; // El QR envía el ID del usuario (o DNI)
+    // Aceptamos workerId (DNI o ID) desde el body
+    const { workerId } = req.body;
 
     try {
-        // 1. Buscar al usuario
-        // Usamos $or por si el QR envía el _id o el DNI
+        if (!workerId) {
+            return res.status(400).json({ message: "No se recibió un código válido" });
+        }
+
+        // 1. Buscar al usuario (por DNI o por ID de MongoDB)
         const user = await User.findOne({ 
-            $or: [{ _id: workerId }, { dni: workerId }] 
+            $or: [
+                { dni: workerId.toString().trim() }, 
+                { _id: (workerId.length === 24) ? workerId : null }
+            ].filter(condition => condition.dni || condition._id)
         });
 
         if (!user) {
-            return res.status(404).json({ message: "Trabajador no encontrado" });
+            return res.status(404).json({ message: "Trabajador no registrado" });
         }
 
-        // 2. OBTENER HORA Y FECHA ACTUAL EN PERÚ
-        // Esto asegura que no importa donde esté el servidor, siempre use hora Lima
+        // 2. Obtener fecha de Perú (YYYY-MM-DD)
         const ahora = new Date();
-        const opciones = { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' };
-        
-        // Genera "YYYY-MM-DD" para Perú
-        const [dia, mes, anio] = ahora.toLocaleDateString('es-PE', opciones).split('/');
-        const hoyPeruStr = `${anio}-${mes}-${dia}`; 
-        
-        // 3. BUSCAR SI YA TIENE REGISTRO HOY
-        // Buscamos dentro del array 'attendance' un objeto que tenga la fecha de hoy
-        if (!user.attendance) user.attendance = [];
-        let registroHoy = user.attendance.find(a => a.date === hoyPeruStr);
+        const hoyPeru = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Lima',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(ahora);
+
+        // 3. Inicializar el array de asistencia si no existe (Evita el Error 500)
+        if (!user.attendance) {
+            user.attendance = [];
+        }
+
+        // 4. Buscar registro de hoy
+        let registroHoy = user.attendance.find(a => a.date === hoyPeru);
 
         if (!registroHoy) {
-            // A. NO TIENE ENTRADA: Creamos el registro del día
+            // REGISTRAR ENTRADA
             user.attendance.push({
-                date: hoyPeruStr,
-                entryTime: ahora, // Guardamos el objeto Date completo
-                observations: "Entrada registrada"
+                date: hoyPeru,
+                entryTime: ahora,
+                observations: "Entrada QR"
             });
             await user.save();
-            return res.status(200).json({ success: true, message: "Entrada registrada correctamente" });
+            return res.json({ success: true, message: "Entrada marcada" });
         } 
         
         if (!registroHoy.exitTime) {
-            // B. TIENE ENTRADA PERO NO SALIDA: Registramos salida
+            // REGISTRAR SALIDA
             registroHoy.exitTime = ahora;
+            // Forzamos a Mongoose a notar el cambio en el array
+            user.markModified('attendance');
             await user.save();
-            return res.status(200).json({ success: true, message: "Salida registrada correctamente" });
-        } 
-        
-        // C. YA TIENE AMBAS MARCAS
-        return res.status(400).json({ 
-            message: "El trabajador ya cuenta con registro de entrada y salida para hoy." 
-        });
+            return res.json({ success: true, message: "Salida marcada" });
+        }
+
+        // Si ya tiene entrada y salida
+        return res.status(400).json({ message: "Ya registró entrada y salida hoy" });
 
     } catch (error) {
-        console.error("Error en asistencia:", error);
-        res.status(500).json({ message: "Error interno del servidor" });
+        console.error("ERROR EN BACKEND:", error);
+        res.status(500).json({ 
+            message: "Error interno en el servidor", 
+            details: error.message 
+        });
     }
 });
 
