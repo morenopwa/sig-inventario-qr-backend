@@ -9,6 +9,7 @@ import salaryRoutes from './routes/salary.js';
 import userRoutes from './routes/users.js';
 import Transaction from './models/Transaction.js';
 import Item from './models/Item.js';
+import attendanceRoutes from './routes/attendance.js';
 
 dotenv.config();
 const app = express();
@@ -24,6 +25,7 @@ mongoose.connect(process.env.MONGODB_URI)
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/salary', salaryRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // RUTA TRANSACCIONES (Para el Chat)
 app.post('/api/transactions', async (req, res) => {
