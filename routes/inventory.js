@@ -14,6 +14,25 @@ router.get('/items', async (req, res) => {
         res.status(500).json({ message: "Error al obtener inventario" });
     }
 });
+router.post('/items', async (req, res) => {
+    try {
+        const { name, stock, category, qrCode } = req.body;
+        
+        // Usamos nombres en inglés para las variables
+        const newItem = new Item({
+            name: name.toUpperCase(),
+            stock: stock || 0,
+            category: category || 'General',
+            qrCode: qrCode || `QR-${Date.now()}`
+        });
+
+        await newItem.save();
+        res.status(201).json({ success: true, message: "Item creado con éxito", data: newItem });
+    } catch (err) {
+        console.error("Error al crear item:", err);
+        res.status(500).json({ success: false, message: "Error al guardar el item" });
+    }
+});
 
 // REGISTRAR PRÉSTAMO (QR Worker + Item ID)
 router.post('/loan', async (req, res) => {
