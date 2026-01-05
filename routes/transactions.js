@@ -8,12 +8,20 @@ const router = express.Router();
 // @desc    Registrar un movimiento (IN/OUT) y actualizar el stock del item
 router.post('/', async (req, res) => {
     try {
-        // Extraemos los datos enviados por el frontend
+        // Recibimos los datos. Nota: Usamos nombres en inglés para las variables internas
         const { quantity, itemName, personName, type } = req.body;
+
+        // Validación preventiva para el programador
+        if (!quantity || isNaN(quantity)) {
+            return res.status(400).json({ message: "La cantidad debe ser un número válido." });
+        }
+        if (!type || !['IN', 'OUT'].includes(type)) {
+            return res.status(400).json({ message: "El tipo debe ser 'IN' o 'OUT'." });
+        }
+
         const normalizedName = itemName.trim().toUpperCase();
-        
-        // 1. Buscar el Item (o crearlo automáticamente si no existe)
         let item = await Item.findOne({ name: normalizedName });
+
         if (!item) {
             item = new Item({ 
                 name: normalizedName, 
@@ -24,40 +32,28 @@ router.post('/', async (req, res) => {
             await item.save();
         }
 
-        // 2. Calcular el impacto en el inventario según el tipo (IN aumenta, OUT resta)
-        const factor = type === 'IN' ? parseInt(quantity) : -parseInt(quantity);
+        // Convertimos a número de forma segura
+        const numericQuantity = parseInt(quantity);
+        const factor = type === 'IN' ? numericQuantity : -numericQuantity;
 
-        // 3. Crear la nueva transacción con los campos exactos del modelo
+        // Crear la transacción con los campos exactos de tu Schema (personName, quantity, type)
         const newTransaction = new Transaction({
             itemId: item._id,
-            quantity: parseInt(quantity),
+            quantity: numericQuantity,
             itemName: normalizedName,
             personName: personName || "OPERARIO",
-            type: type, // 'IN' o 'OUT'
+            type: type, // Aquí llegará 'IN' o 'OUT'
             timestamp: new Date()
         });
 
-        // 4. Actualizar el stock del Item y guardar
         item.stock += factor;
-        
-        // Guardamos la transacción y la actualización del item simultáneamente
         await Promise.all([newTransaction.save(), item.save()]);
 
-        // Respuesta de éxito al cliente
-        res.status(201).json({ 
-            success: true, 
-            message: "Movimiento registrado correctamente",
-            data: newTransaction 
-        });
+        res.status(201).json({ success: true, data: newTransaction });
 
     } catch (err) {
-        // Error detallado para el programador
-        console.error("Error en la ruta de transacciones:", err);
-        res.status(500).json({ 
-            success: false, 
-            message: "Error interno del servidor al procesar el registro",
-            error: err.message 
-        });
+        console.error("Error detallado en el registro:", err);
+        res.status(500).json({ success: false, message: "Error en la validación de datos", error: err.message });
     }
 });
 
