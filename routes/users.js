@@ -1,57 +1,56 @@
 import express from 'express';
-import mongoose from 'mongoose';
-// IMPORTANTE: Importa el modelo directamente para evitar errores de "MissingSchema"
 import User from '../models/User.js'; 
 import Attendance from '../models/Attendance.js';
 
 const router = express.Router();
 
-
+// --- 1. REGISTRO DE ASISTENCIA (QR SCANNER) ---
 router.post('/asistencia', async (req, res) => {
-    const { workerId } = req.body;
+    const { workerId } = req.body; // Aquí llega el customId (EMP-2026-001)
     const ahora = new Date();
     const hoyPeru = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
     try {
-        // 1. Validar que el usuario existe
-        const user = await User.findOne({ $or: [{ dni: workerId }, { _id: workerId.length === 24 ? workerId : null }] });
+        // Buscamos por customId (QR) o por DNI (Backup)
+        const user = await User.findOne({ 
+            $or: [
+                { customId: workerId }, 
+                { dni: workerId }
+            ] 
+        });
+
         if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
-        // 2. Buscar si ya existe un registro de asistencia para este usuario HOY
         let registroHoy = await Attendance.findOne({ worker: user._id, date: hoyPeru });
 
         if (!registroHoy) {
-            // ENTRADA: Crear nuevo documento en la colección Attendance
             const nuevaAsistencia = new Attendance({
                 worker: user._id,
                 dni: user.dni,
                 date: hoyPeru,
-                entryTime: ahora
+                checkIn: ahora
             });
             await nuevaAsistencia.save();
-            return res.json({ success: true, message: "Entrada registrada" });
+            return res.json({ success: true, message: `Entrada: ${user.name}` });
         } 
         
-        if (!registroHoy.exitTime) {
-            // SALIDA: Actualizar el documento existente
-            registroHoy.exitTime = ahora;
+        if (!registroHoy.checkOut) {
+            registroHoy.checkOut = ahora;
             await registroHoy.save();
-            return res.json({ success: true, message: "Salida registrada" });
+            return res.json({ success: true, message: `Salida: ${user.name}` });
         }
 
         return res.status(400).json({ message: "Ya marcó entrada y salida hoy" });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: "Error en el servidor" });
     }
 });
 
-
-
-// --- 2. LOGIN OPTIMIZADO ---
+// --- 2. LOGIN ---
 router.post('/login', async (req, res) => {
     try {
         const { lastName, password } = req.body;
-
         const user = await User.findOne({ lastName: lastName.trim(), password: password.trim() });
 
         if (user) {
@@ -61,8 +60,8 @@ router.post('/login', async (req, res) => {
                     _id: user._id, 
                     name: user.name, 
                     lastName: user.lastName, 
-                    rol: user.rol,
-                    nivelAcceso: user.nivelAcceso 
+                    role: user.role, // CAMPO RESTAURADO
+                    accessLevel: user.accessLevel 
                 } 
             });
         } else {
@@ -70,7 +69,6 @@ router.post('/login', async (req, res) => {
         }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 
 // Obtener todos
 router.get('/', async (req, res) => {
@@ -80,7 +78,7 @@ router.get('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Crear trabajador
+// Crear usuario (con validación de DNI)
 router.post('/', async (req, res) => {
     try {
         const { dni } = req.body;
@@ -96,29 +94,19 @@ router.post('/', async (req, res) => {
         await newUser.save();
         res.status(201).json({ success: true, user: newUser });
     } catch (err) { 
-        console.error("Error en POST /users:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// Eliminar
-router.delete('/:id', async (req, res) => {
-    try {
-        await User.findByIdAndDelete(req.params.id);
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
+// Editar usuario
 router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const updateData = { ...req.body };
 
-        // 🛠️ Validación de seguridad para el campo mail
-        // Si el mail viene vacío o solo espacios, lo eliminamos del objeto
-        // para que MongoDB/Mongoose no lance error de duplicado por string vacío.
-        if (updateData.mail === "" || (updateData.mail && updateData.mail.trim() === "")) {
-            updateData.mail = undefined; 
+        // Limpieza de email para evitar errores de duplicado si está vacío
+        if (updateData.email === "" || (updateData.email && updateData.email.trim() === "")) {
+            updateData.email = undefined; 
         }
 
         const updatedUser = await User.findByIdAndUpdate(
@@ -127,23 +115,21 @@ router.put('/:id', async (req, res) => {
             { new: true, runValidators: true }
         );
 
-        if (!updatedUser) {
-            return res.status(404).json({ message: "Usuario no encontrado" });
-        }
-
+        if (!updatedUser) return res.status(404).json({ message: "Usuario no encontrado" });
         res.json(updatedUser);
     } catch (error) {
-        console.error("Error al actualizar usuario:", error);
-        
-        // Manejo específico para error de duplicado (DNI o Mail)
         if (error.code === 11000) {
-            return res.status(400).json({ 
-                message: "Error: El DNI o Correo ya están registrados por otro usuario." 
-            });
+            return res.status(400).json({ message: "Error: DNI o Email ya registrados." });
         }
-        
-        res.status(500).json({ message: "Error interno del servidor" });
+        res.status(500).json({ message: "Error interno" });
     }
+});
+
+router.delete('/:id', async (req, res) => {
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default router;

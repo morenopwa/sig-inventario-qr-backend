@@ -1,13 +1,12 @@
 import mongoose from 'mongoose';
 
 const TransactionSchema = new mongoose.Schema({
-    cantidad: { type: Number, required: true },
+    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
+    quantity: { type: Number, required: true },
     itemName: { type: String, uppercase: true, required: true },
-    persona: { type: String, required: true },
-    tipo: { type: String, required: true }, 
+    personName: { type: String, required: true }, 
+    type: { type: String, enum: ['IN', 'OUT'], required: true }, 
     timestamp: { type: Date, default: Date.now }
-});
+}, { timestamps: true });
 
-// Exportamos el modelo para que otros archivos lo importen
-const Transaction = mongoose.model('Transaction', TransactionSchema);
-export default Transaction;
+export default mongoose.model('Transaction', TransactionSchema);

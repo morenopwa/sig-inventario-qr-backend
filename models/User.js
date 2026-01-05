@@ -1,64 +1,16 @@
 import mongoose from 'mongoose';
 
 const UserSchema = new mongoose.Schema({
-    name: { 
-        type: String, 
-        required: true,
-        trim: true
-    },
-    lastName: { 
-        type: String, 
-        required: true,
-        trim: true
-    },
-    dni: { 
-        type: String, unique: true,
-        required: true,
-        trim: true
-    },
-    mail: { 
-        type: String, unique: true,
-        trim: true
-    },
-    phone: { 
-        type: Number,
-        trim: true,
-        minlength: [9, 'El phone debe tener al menos 9 dígitos']
-    },
-    password: { 
-        type: String, 
-        required: true,
-        minlength: [8, 'El DNI debe tener al menos 8 dígitos']
-    }, 
-    
-    tipo: { 
-        type: String, 
-        enum: ['Trabajador', 'Externo', 'Visita'], 
-        default: 'Externo'
-    },
+    customId: { type: String, unique: true, required: true }, // Se usará para el QR del personal
+    name: { type: String, required: true, trim: true, uppercase: true },
+    lastName: { type: String, required: true, trim: true, uppercase: true },
+    dni: { type: String, unique: true, required: true, trim: true },
+    email: { type: String, unique: true, sparse: true, trim: true },
+    password: { type: String, required: true }, 
+    role: { type: String }, 
+    type: { type: String, enum: ['Worker', 'External', 'Visitor'], default: 'Worker' },
+    workStartDate: { type: Date, default: Date.now },
+    accessLevel: { type: String, enum: ['SuperAdmin', 'Admin', 'User'], default: 'User' }
+}, { timestamps: true });
 
-    rol: { 
-        type: String 
-    }, 
-        
-    sueldoBase: { 
-        type: Number, default: 0
-     },
-
-        
-    fechaIngreso: { 
-        type: Date 
-    },
-
-    nivelAcceso: { 
-        type: String, 
-        enum: ['SuperAdmin', 'Admin', 'Usuario'], 
-        default: 'Usuario' 
-    }
-}, { 
-    timestamps: true // Crea automáticamente campos "createdAt" y "updatedAt"
-});
-
-// Exportamos el modelo
-const User = mongoose.model('User', UserSchema);
-export default User;
+export default mongoose.model('User', UserSchema);

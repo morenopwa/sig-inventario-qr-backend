@@ -1,18 +1,18 @@
 import mongoose from 'mongoose';
 
 const ItemSchema = new mongoose.Schema({
-    qrCode: { type: String, unique: true },
+    customId: { type: String, unique: true, sparse: true },
     name: { type: String, required: true, uppercase: true },
     category: { type: String, default: 'General' },
     stock: { type: Number, default: 0 },
+    minStock: { type: Number, default: 5 },
+    unit: { type: String, enum: ['Kg', 'Pz', 'Lt', 'm', 'Unit'], default: 'Unit' },
     history: [{
         action: String,
         quantity: Number,
-        user: String,
+        user: String, 
         timestamp: { type: Date, default: Date.now }
     }]
-});
+}, { timestamps: true });
 
-// Exportamos el modelo
-const Item = mongoose.model('Item', ItemSchema);
-export default Item;
+export default mongoose.model('Item', ItemSchema);
