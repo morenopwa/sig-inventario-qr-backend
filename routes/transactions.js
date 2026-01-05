@@ -8,52 +8,55 @@ const router = express.Router();
 // @desc    Registrar un movimiento (IN/OUT) y actualizar el stock del item
 router.post('/', async (req, res) => {
     try {
-        // Recibimos los datos. Nota: Usamos nombres en inglés para las variables internas
-        const { quantity, itemName, personName, type } = req.body;
-
-        // Validación preventiva para el programador
-        if (!quantity || isNaN(quantity)) {
-            return res.status(400).json({ message: "La cantidad debe ser un número válido." });
-        }
-        if (!type || !['IN', 'OUT'].includes(type)) {
-            return res.status(400).json({ message: "El tipo debe ser 'IN' o 'OUT'." });
-        }
-
+        const { quantity, itemName, personName, type, category } = req.body;
         const normalizedName = itemName.trim().toUpperCase();
+        
+        // 1. Buscar el ítem
         let item = await Item.findOne({ name: normalizedName });
-
+        
+        // 2. Si no existe, lo creamos con QR automático según categoría
         if (!item) {
+            const prefix = {
+                'HERRAMIENTA': 'HER-',
+                'CONSUMIBLE': 'CON-',
+                'MAQUINARIA': 'MAQ-'
+            }[category?.toUpperCase()] || 'GEN-';
+
             item = new Item({ 
                 name: normalizedName, 
                 stock: 0, 
-                category: 'General',
-                qrCode: `AUTO-${Date.now()}`
+                category: category || 'General',
+                qrCode: `${prefix}${Date.now()}` // Generación automática
             });
             await item.save();
         }
 
-        // Convertimos a número de forma segura
+        // 3. Lógica de Stock: Si es 'OUT' (salida/préstamo), restamos.
         const numericQuantity = parseInt(quantity);
-        const factor = type === 'IN' ? numericQuantity : -numericQuantity;
+        if (type === 'OUT' && item.stock < numericQuantity) {
+            return res.status(400).json({ message: `Stock insuficiente. Disponible: ${item.stock}` });
+        }
 
-        // Crear la transacción con los campos exactos de tu Schema (personName, quantity, type)
+        const factor = type === 'IN' ? numericQuantity : -numericQuantity;
+        item.stock += factor; // Aquí es donde ocurre la resta en el inventario
+
+        // 4. Registrar la transacción con el nombre del trabajador (Pepito)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
             itemName: normalizedName,
-            personName: personName || "OPERARIO",
-            type: type, // Aquí llegará 'IN' o 'OUT'
+            personName: personName || "GENERAL", 
+            type: type,
             timestamp: new Date()
         });
 
-        item.stock += factor;
+        // Guardar cambios
         await Promise.all([newTransaction.save(), item.save()]);
 
-        res.status(201).json({ success: true, data: newTransaction });
-
+        res.status(201).json({ success: true, data: newTransaction, newStock: item.stock });
     } catch (err) {
-        console.error("Error detallado en el registro:", err);
-        res.status(500).json({ success: false, message: "Error en la validación de datos", error: err.message });
+        console.error("Error en transacción:", err);
+        res.status(500).json({ message: "Error al procesar el registro", error: err.message });
     }
 });
 
