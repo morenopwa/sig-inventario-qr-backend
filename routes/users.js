@@ -132,4 +132,14 @@ router.delete('/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/lastnames', async (req, res) => {
+    try {
+        // Suponiendo que tu modelo de Worker tiene un campo 'lastName'
+        const workers = await Worker.find({}, 'lastName'); 
+        res.json(workers.map(w => w.lastName.toUpperCase()));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;
