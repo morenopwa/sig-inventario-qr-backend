@@ -81,7 +81,7 @@ router.get('/', async (req, res) => {
 // En tu backend: routes/users.js
 router.post('/', async (req, res) => {
     try {
-        const { name, lastName, dni, role, tipo } = req.body;
+        const { name, lastName, dni, role, type } = req.body;
 
         const newUser = new User({
             ...req.body, // Trae name, lastName, dni, etc.
