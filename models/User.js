@@ -8,7 +8,7 @@ const UserSchema = new mongoose.Schema({
     email: { type: String, unique: true, sparse: true, trim: true },
     password: { type: String, required: true }, 
     role: { type: String }, 
-    type: { type: String, enum: ['Worker', 'External', 'Visitor'], default: 'Worker' },
+    type: { type: String, enum: ['Trabajador', 'Externo', 'Visitante'], default: 'Trabajador' },
     workStartDate: { type: Date, default: Date.now },
     accessLevel: { type: String, enum: ['SuperAdmin', 'Admin', 'User'], default: 'User' }
 }, { timestamps: true });
