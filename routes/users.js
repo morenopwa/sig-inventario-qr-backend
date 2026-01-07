@@ -84,9 +84,11 @@ router.post('/', async (req, res) => {
         const { name, lastName, dni, role, type } = req.body;
 
         const newUser = new User({
-            ...req.body, // Trae name, lastName, dni, etc.
-            // ASIGNACIÓN AUTOMÁTICA: Si el front no lo manda, usamos el DNI o un prefijo
-            customId: req.body.customId || `QR-${dni || Date.now()}`
+            ...req.body,
+            name: name.trim().toUpperCase(),
+            lastName: lastName.trim().toUpperCase(),
+            // También generamos el customId en mayúsculas por si acaso
+            customId: req.body.customId || `QR-${dni || Date.now()}`.toUpperCase()
         });
 
         await newUser.save();
@@ -97,30 +99,17 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Editar usuario
 router.put('/:id', async (req, res) => {
     try {
-        const { id } = req.params;
         const updateData = { ...req.body };
+        
+        if (updateData.name) updateData.name = updateData.name.trim().toUpperCase();
+        if (updateData.lastName) updateData.lastName = updateData.lastName.trim().toUpperCase();
 
-        // Limpieza de email para evitar errores de duplicado si está vacío
-        if (updateData.email === "" || (updateData.email && updateData.email.trim() === "")) {
-            updateData.email = undefined; 
-        }
-
-        const updatedUser = await User.findByIdAndUpdate(
-            id, 
-            { $set: updateData }, 
-            { new: true, runValidators: true }
-        );
-
-        if (!updatedUser) return res.status(404).json({ message: "Usuario no encontrado" });
-        res.json(updatedUser);
-    } catch (error) {
-        if (error.code === 11000) {
-            return res.status(400).json({ message: "Error: DNI o Email ya registrados." });
-        }
-        res.status(500).json({ message: "Error interno" });
+        const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
+        res.json({ success: true, data: updatedUser });
+    } catch (err) {
+        res.status(400).json({ message: "Error al actualizar" });
     }
 });
 
