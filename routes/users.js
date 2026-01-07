@@ -130,4 +130,20 @@ router.get('/lastnames', async (req, res) => {
     }
 });
 
+
+// backend/routes/users.js
+router.patch('/:id/rate', async (req, res) => {
+    try {
+        const { hourlyRate } = req.body;
+        // Validamos que sea un número positivo
+        if (isNaN(hourlyRate) || hourlyRate < 0) {
+            return res.status(400).json({ message: "La tarifa debe ser un número válido" });
+        }
+
+        await User.findByIdAndUpdate(req.params.id, { hourlyRate });
+        res.json({ success: true, message: "Tarifa actualizada correctamente" });
+    } catch (error) {
+        res.status(500).json({ message: "Error al actualizar la tarifa" });
+    }
+});
 export default router;
