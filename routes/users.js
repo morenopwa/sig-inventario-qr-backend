@@ -78,24 +78,22 @@ router.get('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// En tu backend: routes/users.js
 router.post('/', async (req, res) => {
     try {
-        const { name, lastName, role } = req.body;
+        const { name, lastName, dni, role, tipo } = req.body;
 
         const newUser = new User({
-            name,
-            lastName,
-            role,
-            // Aquí ocurre la magia: si no viene un ID, el backend usa el tiempo actual
-            // Esto garantiza que siempre haya un valor y no falle el 'required'
-            customId: `QR-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+            ...req.body, // Trae name, lastName, dni, etc.
+            // ASIGNACIÓN AUTOMÁTICA: Si el front no lo manda, usamos el DNI o un prefijo
+            customId: req.body.customId || `QR-${dni || Date.now()}`
         });
 
         await newUser.save();
         res.status(201).json({ success: true, data: newUser });
     } catch (err) {
-        console.error("Error al crear usuario:", err);
-        res.status(400).json({ message: "No se pudo crear el usuario", detail: err.message });
+        console.error("Error al guardar:", err.message);
+        res.status(400).json({ message: "Error de validación: " + err.message });
     }
 });
 
