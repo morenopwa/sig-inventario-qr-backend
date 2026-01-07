@@ -86,15 +86,16 @@ router.post('/', async (req, res) => {
             name,
             lastName,
             role,
-            // Si el frontend no manda customId, el backend crea uno único basado en el tiempo
-            customId: req.body.customId || `QR-${Date.now()}` 
+            // Aquí ocurre la magia: si no viene un ID, el backend usa el tiempo actual
+            // Esto garantiza que siempre haya un valor y no falle el 'required'
+            customId: `QR-${Date.now()}-${Math.floor(Math.random() * 1000)}`
         });
 
         await newUser.save();
-        res.status(201).json({ success: true, message: "Usuario creado", data: newUser });
+        res.status(201).json({ success: true, data: newUser });
     } catch (err) {
-        // Si el error sigue saliendo, es que el modelo de Mongoose es muy estricto
-        res.status(400).json({ error: "Error de validación", detalle: err.message });
+        console.error("Error al crear usuario:", err);
+        res.status(400).json({ message: "No se pudo crear el usuario", detail: err.message });
     }
 });
 
