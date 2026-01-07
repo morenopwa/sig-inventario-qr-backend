@@ -78,23 +78,23 @@ router.get('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Crear usuario (con validación de DNI)
 router.post('/', async (req, res) => {
     try {
-        const { dni } = req.body;
-        const existingUser = await User.findOne({ dni });
-        if (existingUser) {
-            return res.status(400).json({ 
-                success: false, 
-                message: `El DNI ${dni} ya pertenece a ${existingUser.name}` 
-            });
-        }
+        const { name, lastName, role } = req.body;
 
-        const newUser = new User(req.body);
+        const newUser = new User({
+            name,
+            lastName,
+            role,
+            // Si el frontend no manda customId, el backend crea uno único basado en el tiempo
+            customId: req.body.customId || `QR-${Date.now()}` 
+        });
+
         await newUser.save();
-        res.status(201).json({ success: true, user: newUser });
-    } catch (err) { 
-        res.status(500).json({ success: false, message: err.message });
+        res.status(201).json({ success: true, message: "Usuario creado", data: newUser });
+    } catch (err) {
+        // Si el error sigue saliendo, es que el modelo de Mongoose es muy estricto
+        res.status(400).json({ error: "Error de validación", detalle: err.message });
     }
 });
 
