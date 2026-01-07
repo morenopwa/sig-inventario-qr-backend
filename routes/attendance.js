@@ -83,4 +83,25 @@ router.get('/reporte', async (req, res) => {
     }
 });
 
+
+// Obtener asistencias de un usuario específico para su vista de pagos
+router.get('/user/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Buscamos todas las asistencias que pertenezcan a ese worker ID
+        const logs = await Attendance.find({ worker: userId })
+                                     .sort({ date: -1 }); // Ordenar: las más recientes primero
+
+        if (!logs) {
+            return res.status(200).json([]); // Devolvemos lista vacía si no hay nada
+        }
+
+        res.json(logs);
+    } catch (error) {
+        console.error("Error al obtener asistencia por usuario:", error);
+        res.status(500).json({ message: "Error interno del servidor" });
+    }
+});
+
 export default router; 
