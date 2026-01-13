@@ -49,15 +49,15 @@ router.post('/registrar', async (req, res) => {
                 worker: user._id,
                 dni: user.dni,
                 date: hoyPeru,
-                entryTime: ahora
+                checkIn: ahora
             });
             await nuevaAsistencia.save();
             return res.json({ success: true, message: `BIENVENIDO ${user.name}, entrada registrada.` });
         } 
         
-        if (!registroHoy.exitTime) {
+        if (!registroHoy.checkOut) {
             // MARCAR SALIDA
-            registroHoy.exitTime = ahora;
+            registroHoy.checkOut = ahora;
             await registroHoy.save();
             return res.json({ success: true, message: `ADIÓS ${user.name}, salida registrada.` });
         }
