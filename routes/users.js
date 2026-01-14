@@ -51,26 +51,21 @@ router.post('/asistencia', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
+        if (!username || !password) return res.status(400).json({ success: false, message: "Datos incompletos" });
 
-        if (!username || !password) {
-            return res.status(400).json({ success: false, message: "Faltan datos" });
-        }
+        const search = username.trim().toUpperCase();
 
-        const queryText = username.trim().toUpperCase();
-
-        // Buscamos un usuario donde:
-        // 1. El nombre O el apellido EMPIECEN con lo que escribió el usuario (^ significa inicio)
-        // 2. Y la contraseña (DNI) sea exacta
+        // Búsqueda flexible por nombre o apellido
         const user = await User.findOne({ 
             $or: [
-                { name: { $regex: new RegExp('^' + queryText) } },
-                { lastName: { $regex: new RegExp('^' + queryText) } }
+                { name: { $regex: new RegExp('^' + search) } },
+                { lastName: { $regex: new RegExp('^' + search) } }
             ],
             password: password.trim() 
         });
 
         if (user) {
-            return res.json({ 
+            res.json({ 
                 success: true, 
                 user: { 
                     _id: user._id, 
@@ -81,14 +76,10 @@ router.post('/login', async (req, res) => {
                 } 
             });
         } else {
-            return res.status(401).json({ 
-                success: false, 
-                message: "Usuario o DNI no válidos" 
-            });
+            res.status(401).json({ success: false, message: "Nombre/Apellido o DNI incorrectos" });
         }
-    } catch (err) { 
-        console.error("Error en Login:", err);
-        res.status(500).json({ success: false, message: "Error interno en el servidor" }); 
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Error en el servidor" });
     }
 });
 
