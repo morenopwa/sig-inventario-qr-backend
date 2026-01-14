@@ -50,8 +50,21 @@ router.post('/asistencia', async (req, res) => {
 // --- 2. LOGIN ---
 router.post('/login', async (req, res) => {
     try {
-        const { lastName, password } = req.body;
-        const user = await User.findOne({ lastName: lastName.trim(), password: password.trim() });
+        const { username, password } = req.body;
+
+        if (!username || !password) {
+            return res.status(400).json({ message: "Apellido y DNI requeridos" });
+        }
+
+        const apellidoBusqueda = username.trim().toUpperCase();
+
+        // Buscamos un usuario donde:
+        // 1. El lastName EMPIECE con el texto ingresado (^ significa "empieza con")
+        // 2. La contraseña coincida exactamente
+        const user = await User.findOne({ 
+            lastName: { $regex: new RegExp('^' + apellidoBusqueda) }, 
+            password: password.trim() 
+        });
 
         if (user) {
             res.json({ 
@@ -60,14 +73,19 @@ router.post('/login', async (req, res) => {
                     _id: user._id, 
                     name: user.name, 
                     lastName: user.lastName, 
-                    role: user.role, // CAMPO RESTAURADO
+                    role: user.role,
                     accessLevel: user.accessLevel 
                 } 
             });
         } else {
-            res.status(401).json({ success: false, message: "Datos incorrectos" });
+            res.status(401).json({ 
+                success: false, 
+                message: "El apellido no coincide con el DNI registrado" 
+            });
         }
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 // Obtener todos
