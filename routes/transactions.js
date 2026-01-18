@@ -1,10 +1,11 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
 import Item from '../models/Item.js';
+import Movement from '../models/Movement.js'; // Tu nuevo modelo de Kardex
 
 const router = express.Router();
 
-// @route   POST /api/transactions
+// @route   POST /api/transactions (Desde el Chat)
 router.post('/', async (req, res) => {
     try {
         const { quantity, itemName, personName, type, category } = req.body;
@@ -16,7 +17,6 @@ router.post('/', async (req, res) => {
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
-            // Generar prefijo de QR según categoría para el nuevo ítem
             const prefix = {
                 'HERRAMIENTA': 'HER-',
                 'CONSUMIBLE': 'CON-',
@@ -41,7 +41,11 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // 3. Crear el registro de la Transacción (Asignación)
+        // 3. Preparar las actualizaciones
+        const stockFactor = type === 'IN' ? numericQuantity : -numericQuantity;
+        item.stock += stockFactor;
+
+        // 4. Crear el registro para el CHAT (Burbujas)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -51,33 +55,39 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 4. Actualizar Stock del Item
-        const stockFactor = type === 'IN' ? numericQuantity : -numericQuantity;
-        item.stock += stockFactor;
-
-        // 5. Guardar en historial interno del item para trazabilidad
-        item.history.push({
-            action: type,
+        // 5. Crear el registro para el KARDEX (Auditoría)
+        const newKardexEntry = new Movement({
+            itemId: item._id,
+            materialName: normalizedItemName,
+            // Mapeamos 'IN' a 'Compra' y 'OUT' a 'Salida' para que coincida con tu enum
+            type: type === 'IN' ? 'Compra' : 'Salida', 
             quantity: numericQuantity,
-            user: normalizedPersonName,
-            timestamp: new Date()
+            workerName: normalizedPersonName, // Aquí guardamos quién se lo llevó
+            date: new Date(),
+            unitCost: item.lastCost || 0,
+            destination: 'ALMACÉN CENTRAL' // Puedes hacerlo dinámico después
         });
 
-        await Promise.all([newTransaction.save(), item.save()]);
+       // 6. Guardar todo
+        await Promise.all([
+            newTransaction.save(), 
+            newKardexEntry.save(), 
+            item.save()
+        ]);
 
         res.status(201).json({ 
             success: true, 
-            message: "Movimiento registrado con éxito",
+            message: "Movimiento y Kardex registrados",
             data: newTransaction 
         });
 
     } catch (err) {
-        console.error("Error en servidor:", err);
-        res.status(500).json({ success: false, message: "Error interno", error: err.message });
+        console.error("Error en registro:", err);
+        res.status(500).json({ success: false, message: "Error interno" });
     }
 });
 
-// @route   GET /api/transactions
+// @route   GET /api/transactions (Para cargar el historial del chat)
 router.get('/', async (req, res) => {
     try {
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);

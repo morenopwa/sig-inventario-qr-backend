@@ -1,14 +1,15 @@
 import mongoose from 'mongoose';
 
 const ItemSchema = new mongoose.Schema({
-    customId: { type: String, unique: true, sparse: true },
+    customId: { type: String, unique: true, required: true }, // Se usará para el QR de la herramienta
     name: { type: String, required: true, uppercase: true },
     category: { type: String, default: 'General' },
     stock: { type: Number, default: 0 },
     minStock: { type: Number, default: 5 },
     unit: { type: String, enum: ['Kg', 'Pz', 'Lt', 'm', 'Unit'], default: 'Unit' },
+    // El historial interno para cambios rápidos de stock
     history: [{
-        action: String,
+        action: { type: String, enum: ['IN', 'OUT'] },
         quantity: Number,
         user: String, 
         timestamp: { type: Date, default: Date.now }

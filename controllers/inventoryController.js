@@ -1,31 +1,52 @@
-import Movement from '../models/Movement.js';
 import Item from '../models/Item.js';
+import Movement from '../models/Movement.js'; // Asegúrate de tener este modelo
 
-export const registerExit = async (req, res) => {
-    const { itemId, quantity, workerId, workerName, bottleCode, destination } = req.body;
+export const processTransactionFromChat = async (req, res) => {
+    const { quantity, itemName, personName, type, category, autoCreate } = req.body;
 
     try {
-        // 1. Descontar del Stock
-        const item = await Item.findByIdAndUpdate(itemId, { 
-            $inc: { stock: -quantity } 
-        }, { new: true });
+        // 1. Buscar el Item (Case insensitive para que coincida con el chat)
+        let item = await Item.findOne({ name: itemName.toUpperCase() });
 
-        // 2. Crear el registro en el Kardex automáticamente
-        const newMovement = new Movement({
-            itemId,
+        // 2. Si no existe y autoCreate es true, lo creamos
+        if (!item && autoCreate) {
+            item = new Item({
+                name: itemName.toUpperCase(),
+                stock: 0,
+                category: category || 'General',
+                qrCode: `AUTO-${Date.now()}`
+            });
+            await item.save();
+        }
+
+        if (!item) return res.status(404).json({ success: false, message: "Item no encontrado" });
+
+        // 3. Validar stock en salidas
+        if (type === 'OUT' && item.stock < quantity) {
+            return res.status(400).json({ success: false, message: "Stock insuficiente" });
+        }
+
+        // 4. Actualizar Stock
+        const stockChange = type === 'IN' ? quantity : -quantity;
+        item.stock += stockChange;
+        await item.save();
+
+        // 5. REGISTRAR EN EL KARDEX (Movement)
+        // Esto es lo que alimentará tu pestaña de "Historial"
+        const movement = new Movement({
+            itemId: item._id,
             materialName: item.name,
-            type: 'Salida',
-            quantity,
-            unitCost: item.lastCost || 0, // Usamos el último costo de compra
-            workerId,
-            workerName,
-            bottleCode,
-            destination
+            type: type === 'IN' ? 'Compra' : 'Salida',
+            quantity: quantity,
+            workerName: personName.toUpperCase(),
+            date: new Date(),
+            unitCost: item.lastCost || 0 // Mantenemos el último costo conocido
         });
+        await movement.save();
 
-        await newMovement.save();
-        res.json({ message: "Salida registrada y Kardex actualizado" });
+        res.json({ success: true, item, movement });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("Error en transacción:", error);
+        res.status(500).json({ success: false, message: "Error interno del servidor" });
     }
 };
