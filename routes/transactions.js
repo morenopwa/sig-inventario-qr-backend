@@ -10,7 +10,7 @@ router.post('/', async (req, res) => {
         const { quantity, itemName, personName, type, category } = req.body;
 
         if (!itemName || !quantity || !type) {
-            return res.status(400).json({ success: false, message: "Faltan campos requeridos." });
+            return res.status(400).json({ success: false, message: "Faltan datos requeridos." });
         }
 
         const normalizedItemName = itemName.trim().toUpperCase();
@@ -20,24 +20,22 @@ router.post('/', async (req, res) => {
         // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // 2. Si no existe, lo creamos asegurando el customId
+        // 2. Si no existe, lo creamos (CORRECCIÓN DE LA VARIABLE PREFIX)
         if (!item) {
-            // Definimos el prefijo según la categoría para el customId
-            const prefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
-            const generatedCustomId = `${prefix}-${Date.now()}`;
-
+            // Definimos el prefijo según la categoría para que no sea undefined
+            const currentPrefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
+            
             item = new Item({ 
                 name: normalizedItemName, 
                 stock: 0, 
                 category: category || 'General',
-                customId: generatedCustomId, // ESTO ES LO QUE FALTA
+                customId: `${currentPrefix}-${Date.now()}`, // Aquí ya no será undefined
                 unit: 'Unit'
             });
-            // Guardamos el item nuevo para que ya tenga existencia y un _id
             await item.save();
         }
 
-        // 3. Validar y actualizar Stock
+        // 3. Lógica de Stock
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
@@ -60,34 +58,33 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 5. Crear el registro para el KARDEX (Movement)
+        // 5. Crear el registro para el KARDEX
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
             type: type === 'IN' ? 'Compra' : 'Salida', 
             quantity: numericQuantity,
             workerName: normalizedPersonName,
-            date: new Date(),
-            destination: 'ALMACÉN'
+            date: new Date()
         });
 
-        // 6. Guardar todo
-        // Nota: Asegúrate de que esta sea la línea 85 aproximadamente
-        await Promise.all([
-            newTransaction.save(), 
-            newKardexEntry.save(), 
-            item.save() // Aquí se guarda el nuevo stock
-        ]);
+        // 6. Guardar todo (Línea que lanzaba el error)
+        await item.save(); 
+        await newTransaction.save();
+        await newKardexEntry.save();
 
         res.status(201).json({ 
             success: true, 
-            message: "Registro completado con éxito",
+            message: "Registro exitoso", 
             data: newTransaction 
         });
 
     } catch (err) {
         console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ 
+            success: false, 
+            message: `Error de validación: ${err.message}` 
+        });
     }
 });
 
