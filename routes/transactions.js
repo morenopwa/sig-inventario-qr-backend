@@ -9,6 +9,7 @@ router.post('/', async (req, res) => {
     try {
         const { quantity, itemName, personName, type, category } = req.body;
 
+        // Validaciones básicas de entrada
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Datos incompletos." });
         }
@@ -17,28 +18,23 @@ router.post('/', async (req, res) => {
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "ALMACEN";
         const numericQuantity = parseInt(quantity);
 
-        // 1. Buscar el Item
+        // 1. Buscar o Crear el Item (Aquí es donde fallaba el customId)
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // 2. Si NO existe, lo creamos con los campos exactos de tu modelo
         if (!item) {
-            // Generamos el customId obligatorio
-            const generatedId = `ITM-${Date.now()}`;
-            
+            // CREACIÓN CORRECTA: Asignamos el customId antes del save
+            const newId = `ITM-${Date.now()}`;
             item = new Item({ 
-                customId: generatedId,
+                customId: newId, // CAMPO OBLIGATORIO DE TU MODELO ITEM
                 name: normalizedItemName, 
                 category: category || 'General',
                 stock: 0,
-                minStock: 5,
-                unit: 'Unit', // USAMOS 'Unit' PORQUE ES LO QUE PERMITE TU ENUM
-                history: []
+                unit: 'Unit'
             });
-            
-            await item.save();
+            await item.save(); // Ahora no fallará porque tiene el customId
         }
 
-        // 3. Lógica de Stock
+        // 2. Lógica de Stock
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
@@ -51,15 +47,7 @@ router.post('/', async (req, res) => {
             item.stock += numericQuantity;
         }
 
-        // 4. Actualizar el historial interno del Item (Tu modelo tiene un array history)
-        item.history.push({
-            action: type, // 'IN' o 'OUT'
-            quantity: numericQuantity,
-            user: normalizedPersonName,
-            timestamp: new Date()
-        });
-
-        // 5. Crear registros externos (Chat y Kardex)
+        // 3. Crear el registro para el CHAT (Transaction)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -69,22 +57,23 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
+        // 4. Crear el registro para el KARDEX (Movement)
+        // Usamos los campos exactos de tu modelo Movement
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
+            // Mapeamos IN/OUT a los enums de tu Movement: 'Compra' o 'Salida'
             type: type === 'IN' ? 'Compra' : 'Salida', 
             quantity: numericQuantity,
             workerName: normalizedPersonName,
-            date: new Date()
+            date: new Date(),
+            destination: 'OBRA' // Valor por defecto
         });
 
-        // 6. Guardar cambios
+        // 5. Guardar todo en orden
         await item.save();
         await newTransaction.save();
-        
-        try {
-            await newKardexEntry.save();
-        } catch (e) { console.log("Kardex no guardado, pero stock sí."); }
+        await newKardexEntry.save();
 
         res.status(201).json({ 
             success: true, 
@@ -96,12 +85,12 @@ router.post('/', async (req, res) => {
         console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
         res.status(500).json({ 
             success: false, 
-            message: `Error de validación: ${err.message}` 
+            message: `Error de servidor: ${err.message}` 
         });
     }
 });
 
-// GET /api/transactions
+// GET /api/transactions (Igual que lo tenías)
 router.get('/', async (req, res) => {
     try {
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
