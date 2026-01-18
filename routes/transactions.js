@@ -17,11 +17,11 @@ router.post('/', async (req, res) => {
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
-            const prefix = {
-                'HERRAMIENTA': 'HER-',
-                'CONSUMIBLE': 'CON-',
-                'MAQUINARIA': 'MAQ-',
-                'EPP': 'EPP-'
+            const categoryMap = {
+                'HERRAMIENTAS': 'Herramientas',
+                'CONSUMIBLES': 'Consumibles',
+                'MAQUINARIA': 'Maquinaria',
+                'EPP': 'EPP'
             }[category?.toUpperCase()] || 'GEN-';
 
             item = new Item({ 
