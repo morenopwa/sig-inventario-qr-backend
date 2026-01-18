@@ -5,14 +5,12 @@ import Movement from '../models/Movement.js';
 
 const router = express.Router();
 
-// @route   POST /api/transactions
 router.post('/', async (req, res) => {
     try {
         const { quantity, itemName, personName, type, category } = req.body;
 
-        // Validaciones iniciales para evitar que el servidor falle
         if (!itemName || !quantity || !type) {
-            return res.status(400).json({ success: false, message: "Faltan datos: nombre, cantidad o tipo." });
+            return res.status(400).json({ success: false, message: "Faltan datos obligatorios." });
         }
 
         const normalizedItemName = itemName.trim().toUpperCase();
@@ -22,37 +20,39 @@ router.post('/', async (req, res) => {
         // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // 2. Si no existe, lo creamos con valores seguros
+        // 2. Si no existe, lo creamos cumpliendo con 'customId'
         if (!item) {
-            // Definimos el prefijo según la categoría para el QR
-            const prefix = category?.toUpperCase() === 'EPP' ? 'EPP-' : 'INV-';
+            const prefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'INV';
+            const timestamp = Date.now();
             
             item = new Item({ 
                 name: normalizedItemName, 
                 stock: 0, 
                 category: category || 'Consumibles',
-                qrCode: `${prefix}${Date.now()}`,
+                // AQUÍ ESTABA EL ERROR: Tu modelo pide 'customId', no 'qrCode'
+                customId: `${prefix}-${timestamp}`, 
+                qrCode: `${prefix}-${timestamp}`, // Por si acaso usas ambos
                 unit: 'und'
             });
-            // Guardamos el item nuevo primero para tener un ID válido
+            
+            // Guardar el item para que exista en la DB
             await item.save();
         }
 
         // 3. Validar Stock si es salida (OUT)
-        // Muy importante: Esto es lo que evita que el inventario sea negativo
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: `Stock insuficiente. ${normalizedItemName} solo tiene ${item.stock} unidades.` 
+                    message: `Stock insuficiente. ${normalizedItemName} tiene ${item.stock} unidades.` 
                 });
             }
-            item.stock -= numericQuantity; // RESTA EL STOCK
+            item.stock -= numericQuantity; 
         } else {
-            item.stock += numericQuantity; // SUMA EL STOCK
+            item.stock += numericQuantity; 
         }
 
-        // 4. Crear el registro para el CHAT (Lo que ves en las burbujas)
+        // 4. Crear los registros de historial
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -62,7 +62,6 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 5. Crear el registro para el KARDEX (Auditoría e Historial)
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
@@ -73,31 +72,29 @@ router.post('/', async (req, res) => {
             destination: 'ALMACÉN CENTRAL'
         });
 
-        // 6. GUARDAR TODO (Atomicamente)
-        // Usamos Promise.all para que si uno falla, nada se guarde (consistencia)
+        // 5. Guardar todo
         await Promise.all([
             newTransaction.save(), 
             newKardexEntry.save(), 
-            item.save() // Aquí se confirma la resta/suma en el inventario
+            item.save() // Confirmar el nuevo stock
         ]);
 
         res.status(201).json({ 
             success: true, 
-            message: "Movimiento registrado con éxito",
+            message: "Registro completado con éxito",
             data: newTransaction 
         });
 
     } catch (err) {
-        // Este log es vital para saber POR QUÉ dio error 500
         console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
         res.status(500).json({ 
             success: false, 
-            message: "Error interno del servidor: " + err.message 
+            message: "Error de validación: Asegúrese de enviar todos los campos obligatorios." 
         });
     }
 });
 
-// @route   GET /api/transactions
+// GET /api/transactions
 router.get('/', async (req, res) => {
     try {
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
