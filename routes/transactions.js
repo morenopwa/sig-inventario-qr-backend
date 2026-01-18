@@ -20,19 +20,26 @@ router.post('/', async (req, res) => {
         // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // 2. Si no existe, lo creamos (CORRECCIÓN DE LA VARIABLE PREFIX)
+        // 2. Si NO existe, lo creamos de cero con su customId
         if (!item) {
-            // Definimos el prefijo según la categoría para que no sea undefined
             const currentPrefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
-            
             item = new Item({ 
                 name: normalizedItemName, 
                 stock: 0, 
                 category: category || 'General',
-                customId: `${currentPrefix}-${Date.now()}`, // Aquí ya no será undefined
+                customId: `${currentPrefix}-${Date.now()}`, 
                 unit: 'Unit'
             });
             await item.save();
+        }
+
+        // --- SOLUCIÓN PARA EL ERROR: CURACIÓN DE DATOS ANTIGUOS ---
+        // Si el ítem existe pero NO tiene customId (como tu PULIFAN), se lo ponemos ahora.
+        // Sin esto, item.save() en la línea 89 fallará siempre.
+        if (!item.customId) {
+            const repairPrefix = item.category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
+            item.customId = `${repairPrefix}-OLD-${Date.now()}`;
+            console.log(`🔧 Reparando ítem antiguo: ${item.name} asignando ID: ${item.customId}`);
         }
 
         // 3. Lógica de Stock
@@ -48,7 +55,15 @@ router.post('/', async (req, res) => {
             item.stock += numericQuantity;
         }
 
-        // 4. Crear el registro para el CHAT
+        // 4. Actualizar historial interno del ítem
+        item.history.push({
+            action: type,
+            quantity: numericQuantity,
+            user: normalizedPersonName,
+            timestamp: new Date()
+        });
+
+        // 5. Crear registros de auditoría (Chat y Kardex)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -58,7 +73,6 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 5. Crear el registro para el KARDEX
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
@@ -68,14 +82,14 @@ router.post('/', async (req, res) => {
             date: new Date()
         });
 
-        // 6. Guardar todo (Línea que lanzaba el error)
-        await item.save(); 
+        // 6. GUARDAR TODO (Ahora sí funcionará)
+        await item.save(); // Mongoose ya no llorará por el customId
         await newTransaction.save();
         await newKardexEntry.save();
 
         res.status(201).json({ 
             success: true, 
-            message: "Registro exitoso", 
+            message: "Stock actualizado correctamente", 
             data: newTransaction 
         });
 
@@ -83,11 +97,12 @@ router.post('/', async (req, res) => {
         console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
         res.status(500).json({ 
             success: false, 
-            message: `Error de validación: ${err.message}` 
+            message: `Error de servidor: ${err.message}` 
         });
     }
 });
 
+// GET /api/transactions
 router.get('/', async (req, res) => {
     try {
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
