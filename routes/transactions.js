@@ -9,32 +9,35 @@ router.post('/', async (req, res) => {
     try {
         const { quantity, itemName, personName, type, category } = req.body;
 
-        // Validaciones básicas de entrada
         if (!itemName || !quantity || !type) {
-            return res.status(400).json({ success: false, message: "Datos incompletos." });
+            return res.status(400).json({ success: false, message: "Faltan campos requeridos." });
         }
 
         const normalizedItemName = itemName.trim().toUpperCase();
-        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "ALMACEN";
+        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
         const numericQuantity = parseInt(quantity);
 
-        // 1. Buscar o Crear el Item (Aquí es donde fallaba el customId)
+        // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
+        // 2. Si no existe, lo creamos asegurando el customId
         if (!item) {
-            // CREACIÓN CORRECTA: Asignamos el customId antes del save
-            const newId = `ITM-${Date.now()}`;
+            // Definimos el prefijo según la categoría para el customId
+            const prefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
+            const generatedCustomId = `${prefix}-${Date.now()}`;
+
             item = new Item({ 
-                customId: newId, // CAMPO OBLIGATORIO DE TU MODELO ITEM
                 name: normalizedItemName, 
+                stock: 0, 
                 category: category || 'General',
-                stock: 0,
+                customId: generatedCustomId, // ESTO ES LO QUE FALTA
                 unit: 'Unit'
             });
-            await item.save(); // Ahora no fallará porque tiene el customId
+            // Guardamos el item nuevo para que ya tenga existencia y un _id
+            await item.save();
         }
 
-        // 2. Lógica de Stock
+        // 3. Validar y actualizar Stock
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
@@ -47,7 +50,7 @@ router.post('/', async (req, res) => {
             item.stock += numericQuantity;
         }
 
-        // 3. Crear el registro para el CHAT (Transaction)
+        // 4. Crear el registro para el CHAT
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -57,40 +60,37 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 4. Crear el registro para el KARDEX (Movement)
-        // Usamos los campos exactos de tu modelo Movement
+        // 5. Crear el registro para el KARDEX (Movement)
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
-            // Mapeamos IN/OUT a los enums de tu Movement: 'Compra' o 'Salida'
             type: type === 'IN' ? 'Compra' : 'Salida', 
             quantity: numericQuantity,
             workerName: normalizedPersonName,
             date: new Date(),
-            destination: 'OBRA' // Valor por defecto
+            destination: 'ALMACÉN'
         });
 
-        // 5. Guardar todo en orden
-        await item.save();
-        await newTransaction.save();
-        await newKardexEntry.save();
+        // 6. Guardar todo
+        // Nota: Asegúrate de que esta sea la línea 85 aproximadamente
+        await Promise.all([
+            newTransaction.save(), 
+            newKardexEntry.save(), 
+            item.save() // Aquí se guarda el nuevo stock
+        ]);
 
         res.status(201).json({ 
             success: true, 
-            message: "Registro exitoso", 
+            message: "Registro completado con éxito",
             data: newTransaction 
         });
 
     } catch (err) {
         console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
-        res.status(500).json({ 
-            success: false, 
-            message: `Error de servidor: ${err.message}` 
-        });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// GET /api/transactions (Igual que lo tenías)
 router.get('/', async (req, res) => {
     try {
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
