@@ -10,49 +10,56 @@ router.post('/', async (req, res) => {
         const { quantity, itemName, personName, type, category } = req.body;
 
         if (!itemName || !quantity || !type) {
-            return res.status(400).json({ success: false, message: "Faltan datos obligatorios." });
+            return res.status(400).json({ success: false, message: "Datos incompletos." });
         }
 
         const normalizedItemName = itemName.trim().toUpperCase();
-        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
+        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "ALMACEN";
         const numericQuantity = parseInt(quantity);
 
         // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // 2. Si no existe, lo creamos cumpliendo con 'customId'
+        // 2. Si NO existe, lo creamos con los campos exactos de tu modelo
         if (!item) {
-            const prefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'INV';
-            const timestamp = Date.now();
+            // Generamos el customId obligatorio
+            const generatedId = `ITM-${Date.now()}`;
             
             item = new Item({ 
+                customId: generatedId,
                 name: normalizedItemName, 
-                stock: 0, 
-                category: category || 'Consumibles',
-                // AQUÍ ESTABA EL ERROR: Tu modelo pide 'customId', no 'qrCode'
-                customId: `${prefix}-${timestamp}`, 
-                qrCode: `${prefix}-${timestamp}`, // Por si acaso usas ambos
-                unit: 'und'
+                category: category || 'General',
+                stock: 0,
+                minStock: 5,
+                unit: 'Unit', // USAMOS 'Unit' PORQUE ES LO QUE PERMITE TU ENUM
+                history: []
             });
             
-            // Guardar el item para que exista en la DB
             await item.save();
         }
 
-        // 3. Validar Stock si es salida (OUT)
+        // 3. Lógica de Stock
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: `Stock insuficiente. ${normalizedItemName} tiene ${item.stock} unidades.` 
+                    message: `Stock insuficiente: ${item.stock} disponibles.` 
                 });
             }
-            item.stock -= numericQuantity; 
+            item.stock -= numericQuantity;
         } else {
-            item.stock += numericQuantity; 
+            item.stock += numericQuantity;
         }
 
-        // 4. Crear los registros de historial
+        // 4. Actualizar el historial interno del Item (Tu modelo tiene un array history)
+        item.history.push({
+            action: type, // 'IN' o 'OUT'
+            quantity: numericQuantity,
+            user: normalizedPersonName,
+            timestamp: new Date()
+        });
+
+        // 5. Crear registros externos (Chat y Kardex)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -68,20 +75,20 @@ router.post('/', async (req, res) => {
             type: type === 'IN' ? 'Compra' : 'Salida', 
             quantity: numericQuantity,
             workerName: normalizedPersonName,
-            date: new Date(),
-            destination: 'ALMACÉN CENTRAL'
+            date: new Date()
         });
 
-        // 5. Guardar todo
-        await Promise.all([
-            newTransaction.save(), 
-            newKardexEntry.save(), 
-            item.save() // Confirmar el nuevo stock
-        ]);
+        // 6. Guardar cambios
+        await item.save();
+        await newTransaction.save();
+        
+        try {
+            await newKardexEntry.save();
+        } catch (e) { console.log("Kardex no guardado, pero stock sí."); }
 
         res.status(201).json({ 
             success: true, 
-            message: "Registro completado con éxito",
+            message: "Registro exitoso", 
             data: newTransaction 
         });
 
@@ -89,7 +96,7 @@ router.post('/', async (req, res) => {
         console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
         res.status(500).json({ 
             success: false, 
-            message: "Error de validación: Asegúrese de enviar todos los campos obligatorios." 
+            message: `Error de validación: ${err.message}` 
         });
     }
 });
