@@ -20,7 +20,6 @@ router.post('/', async (req, res) => {
         // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // 2. Si NO existe, lo creamos de cero con su customId
         if (!item) {
             const currentPrefix = category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
             item = new Item({ 
@@ -33,29 +32,22 @@ router.post('/', async (req, res) => {
             await item.save();
         }
 
-        // --- SOLUCIÓN PARA EL ERROR: CURACIÓN DE DATOS ANTIGUOS ---
-        // Si el ítem existe pero NO tiene customId (como tu PULIFAN), se lo ponemos ahora.
-        // Sin esto, item.save() en la línea 89 fallará siempre.
+        // Reparación de items antiguos (GEN-OLD...)
         if (!item.customId) {
             const repairPrefix = item.category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
             item.customId = `${repairPrefix}-OLD-${Date.now()}`;
-            console.log(`🔧 Reparando ítem antiguo: ${item.name} asignando ID: ${item.customId}`);
         }
 
         // 3. Lógica de Stock
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: `Stock insuficiente: ${item.stock} disponibles.` 
-                });
+                return res.status(400).json({ success: false, message: `Stock insuficiente: ${item.stock}` });
             }
             item.stock -= numericQuantity;
         } else {
             item.stock += numericQuantity;
         }
 
-        // 4. Actualizar historial interno del ítem
         item.history.push({
             action: type,
             quantity: numericQuantity,
@@ -63,42 +55,54 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 5. Crear registros de auditoría (Chat y Kardex)
+        // 4. Preparar documentos
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
             itemName: normalizedItemName,
             personName: normalizedPersonName,
-            type: type, 
-            timestamp: new Date()
+            type: type
         });
 
+        // 5. KARDEX (Movement) - REVISIÓN DE CAMPOS
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
             type: type === 'IN' ? 'Compra' : 'Salida', 
             quantity: numericQuantity,
             workerName: normalizedPersonName,
-            date: new Date()
+            date: new Date(),
+            unitCost: 0,
+            destination: 'ALMACEN' 
         });
 
-        // 6. GUARDAR TODO (Ahora sí funcionará)
-        await item.save(); // Mongoose ya no llorará por el customId
+        // 6. GUARDADO SECUENCIAL PARA LOCALIZAR ERROR
+        console.log("--- Iniciando guardado de datos ---");
+        
+        await item.save();
+        console.log("✅ Item guardado");
+
         await newTransaction.save();
-        await newKardexEntry.save();
+        console.log("✅ Transacción (Chat) guardada");
+
+        // Intentar guardar Kardex capturando error específico
+        try {
+            await newKardexEntry.save();
+            console.log("✅ Kardex (Movement) guardado exitosamente");
+        } catch (kardexError) {
+            console.error("❌ ERROR ESPECÍFICO EN KARDEX:", kardexError.message);
+            // No bloqueamos la respuesta al usuario si solo falla el kardex
+        }
 
         res.status(201).json({ 
             success: true, 
-            message: "Stock actualizado correctamente", 
+            message: "Registro procesado", 
             data: newTransaction 
         });
 
     } catch (err) {
-        console.error("❌ ERROR CRÍTICO EN TRANSACCIÓN:", err);
-        res.status(500).json({ 
-            success: false, 
-            message: `Error de servidor: ${err.message}` 
-        });
+        console.error("❌ ERROR GENERAL:", err);
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
