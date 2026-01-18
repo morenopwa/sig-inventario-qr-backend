@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const ItemSchema = new mongoose.Schema({
     customId: { type: String, unique: true, required: true }, // Se usará para el QR de la herramienta
     name: { type: String, required: true, uppercase: true },
+    alias: { type: String, default: "" },
     category: { type: String, default: 'General' },
     stock: { type: Number, default: 0 },
     minStock: { type: Number, default: 5 },

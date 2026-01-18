@@ -32,15 +32,18 @@ export const processTransactionFromChat = async (req, res) => {
         await item.save();
 
         // 5. REGISTRAR EN EL KARDEX (Movement)
-        // Esto es lo que alimentará tu pestaña de "Historial"
         const movement = new Movement({
             itemId: item._id,
             materialName: item.name,
+            // Agregamos estos campos para que el Kardex no salga vacío o con 'und'
+            alias: item.alias || "", 
+            unit: item.unit || "und", 
             type: type === 'IN' ? 'Compra' : 'Salida',
             quantity: quantity,
             workerName: personName.toUpperCase(),
+            destination: req.body.destination || (type === 'IN' ? 'ALMACEN' : 'OBRA'), 
             date: new Date(),
-            unitCost: item.lastCost || 0 // Mantenemos el último costo conocido
+            unitCost: item.lastCost || 0 
         });
         await movement.save();
 
