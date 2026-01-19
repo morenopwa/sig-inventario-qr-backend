@@ -7,7 +7,8 @@ const router = express.Router();
 
 router.post('/', async (req, res) => {
     try {
-        const { quantity, itemName, personName, type, category } = req.body;
+        // Recibimos operationType desde el frontend
+        const { quantity, itemName, personName, type, category, operationType } = req.body;
 
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Faltan datos requeridos." });
@@ -15,9 +16,15 @@ router.post('/', async (req, res) => {
 
         const normalizedItemName = itemName.trim().toUpperCase();
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
-        const numericQuantity = parseInt(quantity);
+        
+        // 1. CAMBIO CRUCIAL: Usar parseFloat en lugar de parseInt para detectar kilos/decimales
+        const numericQuantity = parseFloat(quantity);
 
-        // 1. Buscar el Item
+        if (isNaN(numericQuantity)) {
+            return res.status(400).json({ success: false, message: "La cantidad debe ser un número válido." });
+        }
+
+        // 2. Buscar el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
@@ -32,13 +39,7 @@ router.post('/', async (req, res) => {
             await item.save();
         }
 
-        // Reparación de items antiguos (GEN-OLD...)
-        if (!item.customId) {
-            const repairPrefix = item.category?.toUpperCase() === 'EPP' ? 'EPP' : 'GEN';
-            item.customId = `${repairPrefix}-OLD-${Date.now()}`;
-        }
-
-        // 3. Lógica de Stock
+        // 3. Lógica de Stock (Ahora acepta decimales)
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Stock insuficiente: ${item.stock}` });
@@ -55,43 +56,42 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 4. Preparar documentos
+        // 4. Preparar documentos de Transacción (Chat)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
             itemName: normalizedItemName,
             personName: normalizedPersonName,
-            type: type
+            type: type,
+            operationType: operationType // Guardamos si es SIMA, COMPRA, etc.
         });
 
-        // 5. KARDEX (Movement) - REVISIÓN DE CAMPOS
+        // 5. KARDEX (Movement) - Mejoramos el mapeo de tipos
+        // Si el frontend envió un operationType, lo usamos, si no, usamos el genérico
+        const finalKardexType = operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA');
+
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
-            type: type === 'IN' ? 'Compra' : 'Salida', 
+            type: finalKardexType, 
             quantity: numericQuantity,
             workerName: normalizedPersonName,
             date: new Date(),
             unitCost: 0,
-            destination: 'ALMACEN' 
+            destination: operationType === 'SIMA' ? 'SIMA' : 'ALMACEN' 
         });
 
-        // 6. GUARDADO SECUENCIAL PARA LOCALIZAR ERROR
-        console.log("--- Iniciando guardado de datos ---");
+        // 6. Guardado secuencial
+        console.log(`--- Procesando: ${numericQuantity} de ${normalizedItemName} (${finalKardexType}) ---`);
         
         await item.save();
-        console.log("✅ Item guardado");
-
         await newTransaction.save();
-        console.log("✅ Transacción (Chat) guardada");
 
-        // Intentar guardar Kardex capturando error específico
         try {
             await newKardexEntry.save();
-            console.log("✅ Kardex (Movement) guardado exitosamente");
+            console.log("✅ Kardex actualizado con tipo:", finalKardexType);
         } catch (kardexError) {
-            console.error("❌ ERROR ESPECÍFICO EN KARDEX:", kardexError.message);
-            // No bloqueamos la respuesta al usuario si solo falla el kardex
+            console.error("❌ ERROR EN KARDEX:", kardexError.message);
         }
 
         res.status(201).json({ 
