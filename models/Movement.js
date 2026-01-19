@@ -4,7 +4,7 @@ const MovementSchema = new mongoose.Schema({
     date: { type: Date, default: Date.now },
     itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
     materialName: { type: String, required: true }, // Copiamos el nombre por si el item se borra
-    type: { type: String, enum: ['Compra', 'Salida', 'SIMA', 'RECAMBIO', 'COMPRA', 'ENTRADA', 'SALIDA'],, required: true },
+    type: { type: String, enum: ['Compra', 'Salida', 'SIMA', 'RECAMBIO', 'COMPRA', 'ENTRADA', 'SALIDA'], required: true },
     quantity: { type: Number, required: true },
     unitCost: { type: Number, default: 0 },
     bottleCode: { type: String }, // El código de las botellas de gas
