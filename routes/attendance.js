@@ -1,8 +1,11 @@
 import express from 'express';
-const router = express.Router();
 import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
+import { getPayrollReport } from '../controllers/attendanceController.js';
 
+const router = express.Router();
+
+router.get('/payroll-report', getPayrollReport);
 // Obtener asistencias por fecha
 router.get('/', async (req, res) => {
     try {
@@ -103,5 +106,8 @@ router.get('/', async (req, res) => {
         res.status(500).json({ message: "Error al obtener asistencias" });
     }
 });
+
+
+
 
 export default router; 
