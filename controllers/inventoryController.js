@@ -2,35 +2,30 @@ import Item from '../models/Item.js';
 import Movement from '../models/Movement.js';
 
 export const processTransactionFromChat = async (req, res) => {
-    // rawInput es el texto del chat, ej: "2.5 kg soldadura 7018"
-    const { rawInput, personName, type, category, autoCreate, destination } = req.body;
+    // Recibimos los datos ya limpios desde el ChatPage.jsx
+    const { itemName, quantity, unit, personName, type, operationType, autoCreate, destination } = req.body;
 
     try {
-        // Expresión regular: busca un número (entero o decimal) + una unidad opcional (kg/kilos) + nombre
-        const regex = /^(\d+(?:\.\d+)?)\s*(kg|kilos)?\s*(.*)$/i;
-        const match = rawInput.match(regex);
-
-        if (!match) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Formato incorrecto. Empieza con la cantidad (ej: 2 kg soldadura)" 
-            });
+        if (!itemName || isNaN(quantity)) {
+            return res.status(400).json({ success: false, message: "Datos incompletos (nombre o cantidad)" });
         }
 
-        const quantity = parseFloat(match[1]);
-        const unitFromChat = match[2] ? 'kg' : null; // Si escribió kg o kilos, guardamos 'kg'
-        const itemName = match[3].trim().toUpperCase();
+        const normalizedName = itemName.trim().toUpperCase();
 
-        // 1. Buscar el Item en la base de datos
-        let item = await Item.findOne({ name: itemName });
+        // 1. Buscar el Item por nombre exacto
+        let item = await Item.findOne({ name: normalizedName });
 
-        // 2. Si no existe y autoCreate es true, lo creamos
+        // 2. Si no existe, lo creamos con la categoría correcta
         if (!item && autoCreate) {
+            // Lógica para asignar categoría según el nombre o el operationType
+            let category = 'Consumibles'; // Por defecto para el chat
+            if (operationType === 'RECAMBIO') category = 'Herramientas';
+            
             item = new Item({
-                name: itemName,
+                name: normalizedName,
                 stock: 0,
-                category: category || 'General',
-                unit: unitFromChat || 'und', // Si el chat detectó kg, lo guarda así
+                category: category,
+                unit: unit || 'UND',
                 qrCode: `AUTO-${Date.now()}`
             });
             await item.save();
@@ -38,36 +33,37 @@ export const processTransactionFromChat = async (req, res) => {
 
         if (!item) return res.status(404).json({ success: false, message: "Material no encontrado" });
 
-        // 3. Validar stock en salidas
+        // 3. Validar stock en salidas (OUT)
         if (type === 'OUT' && item.stock < quantity) {
-            return res.status(400).json({ success: false, message: "Stock insuficiente" });
+            return res.status(400).json({ success: false, message: `Stock insuficiente. Disponible: ${item.stock}` });
         }
 
-        // 4. Actualizar Stock del Item
+        // 4. ACTUALIZACIÓN CRÍTICA DEL STOCK
         const stockChange = type === 'IN' ? quantity : -quantity;
         item.stock += stockChange;
+        
+        // Guardamos también la última unidad y costo si vienen en el request
+        if (unit) item.unit = unit; 
         await item.save();
 
         // 5. REGISTRAR EN EL KARDEX (Movement)
         const movement = new Movement({
             itemId: item._id,
             materialName: item.name,
-            alias: item.alias || "", // Trae el alias si ya existe
-            unit: unitFromChat || item.unit || 'und', // Prioridad al chat, luego al item
-            type: type === 'IN' ? 'Compra' : 'Salida',
+            alias: item.alias || "",
+            unit: unit || item.unit || 'UND',
+            type: operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA'),
             quantity: quantity,
-            workerName: personName ? personName.toUpperCase() : "SIN NOMBRE",
+            workerName: personName ? personName.toUpperCase() : "GENERAL",
             destination: destination || (type === 'IN' ? 'ALMACEN' : 'OBRA'),
-            date: new Date(),
-            unitCost: item.lastCost || 0 // Mantenemos el costo guardado en el item
+            date: new Date()
         });
         await movement.save();
 
         res.json({ 
             success: true, 
-            message: `Registrado: ${quantity} ${movement.unit} de ${item.name}`,
-            item, 
-            movement 
+            message: `Stock actualizado: ${item.name} ahora tiene ${item.stock}`,
+            item
         });
 
     } catch (error) {
