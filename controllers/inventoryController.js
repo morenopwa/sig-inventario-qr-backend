@@ -2,72 +2,60 @@ import Item from '../models/Item.js';
 import Movement from '../models/Movement.js';
 
 export const processTransactionFromChat = async (req, res) => {
-    // Recibimos los datos ya limpios desde el ChatPage.jsx
+    // Recibimos los datos ya procesados por el ChatPage.jsx
     const { itemName, quantity, unit, personName, type, operationType, autoCreate, destination } = req.body;
 
     try {
         if (!itemName || isNaN(quantity)) {
-            return res.status(400).json({ success: false, message: "Datos incompletos (nombre o cantidad)" });
+            return res.status(400).json({ success: false, message: "Datos incompletos." });
         }
 
-        const normalizedName = itemName.trim().toUpperCase();
+        const normalizedName = itemName.toUpperCase().trim();
 
-        // 1. Buscar el Item por nombre exacto
+        // 1. Buscar el Item
         let item = await Item.findOne({ name: normalizedName });
 
-        // 2. Si no existe, lo creamos con la categoría correcta
+        // 2. Si no existe y autoCreate es true, crearlo
         if (!item && autoCreate) {
-            // Lógica para asignar categoría según el nombre o el operationType
-            let category = 'Consumibles'; // Por defecto para el chat
-            if (operationType === 'RECAMBIO') category = 'Herramientas';
-            
             item = new Item({
                 name: normalizedName,
                 stock: 0,
-                category: category,
+                category: 'Consumibles', // IMPORTANTE: Para que salga en la pestaña Consumibles
                 unit: unit || 'UND',
                 qrCode: `AUTO-${Date.now()}`
             });
             await item.save();
         }
 
-        if (!item) return res.status(404).json({ success: false, message: "Material no encontrado" });
+        if (!item) return res.status(404).json({ success: false, message: "Material no encontrado." });
 
-        // 3. Validar stock en salidas (OUT)
+        // 3. Validar Stock
         if (type === 'OUT' && item.stock < quantity) {
-            return res.status(400).json({ success: false, message: `Stock insuficiente. Disponible: ${item.stock}` });
+            return res.status(400).json({ success: false, message: "Stock insuficiente." });
         }
 
-        // 4. ACTUALIZACIÓN CRÍTICA DEL STOCK
+        // 4. ACTUALIZAR STOCK (Esto es lo que hace que cambie en la pestaña Consumibles)
         const stockChange = type === 'IN' ? quantity : -quantity;
         item.stock += stockChange;
-        
-        // Guardamos también la última unidad y costo si vienen en el request
-        if (unit) item.unit = unit; 
         await item.save();
 
-        // 5. REGISTRAR EN EL KARDEX (Movement)
+        // 5. Registrar Movimiento
         const movement = new Movement({
             itemId: item._id,
             materialName: item.name,
-            alias: item.alias || "",
-            unit: unit || item.unit || 'UND',
+            unit: unit || item.unit,
             type: operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA'),
             quantity: quantity,
-            workerName: personName ? personName.toUpperCase() : "GENERAL",
+            workerName: personName || "GENERAL",
             destination: destination || (type === 'IN' ? 'ALMACEN' : 'OBRA'),
             date: new Date()
         });
         await movement.save();
 
-        res.json({ 
-            success: true, 
-            message: `Stock actualizado: ${item.name} ahora tiene ${item.stock}`,
-            item
-        });
+        res.json({ success: true, item, movement });
 
     } catch (error) {
-        console.error("Error en transacción:", error);
-        res.status(500).json({ success: false, message: "Error interno del servidor" });
+        console.error("Error:", error);
+        res.status(500).json({ success: false, message: "Error en el servidor." });
     }
 };
