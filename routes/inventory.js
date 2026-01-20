@@ -34,6 +34,15 @@ router.post('/items', async (req, res) => {
     }
 });
 
+router.get('/movements', async (req, res) => {
+    try {
+        const movements = await Movement.find().sort({ date: -1 }).limit(100);
+        res.json(movements);
+    } catch (err) {
+        res.status(500).json({ message: "Error al obtener movimientos" });
+    }
+});
+
 // REGISTRAR PRÉSTAMO (QR Worker + Item ID)
 router.post('/loan', async (req, res) => {
     const { itemObjectId, workerCustomId } = req.body;
