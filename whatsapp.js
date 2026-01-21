@@ -1,36 +1,54 @@
-import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } = pkg;
+import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        headless: true,
-        // Usar la variable de entorno de Render o una ruta por defecto
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process', // CRÍTICO: Para no agotar la RAM de Render
-            '--disable-gpu'
-        ],
+let sock;
+// CONFIGURACIÓN: Tu número de WhatsApp (con código de país, sin el + ni espacios)
+const targetNumber = "51999888777"; 
+
+export const connectToWhatsApp = async () => {
+    // Guarda la sesión en la carpeta 'auth_info_baileys' para no pedir QR siempre
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true,
+        browser: ["Sistema Asistencia", "Chrome", "1.0.0"]
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log('--- NUEVO QR GENERADO. ESCANEA EN LOS LOGS DE RENDER ---');
+            qrcode.generate(qr, { small: true });
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexión cerrada. Reconectando:', shouldReconnect);
+            if (shouldReconnect) connectToWhatsApp();
+        } else if (connection === 'open') {
+            console.log('✅ WhatsApp conectado exitosamente con Baileys');
+        }
+    });
+};
+
+// Función para enviar mensajes automáticos
+export const sendWSMessage = async (text) => {
+    if (!sock) {
+        console.log("⚠️ WhatsApp no está listo todavía");
+        return;
     }
-});
+    try {
+        const id = `${targetNumber}@s.whatsapp.net`;
+        await sock.sendMessage(id, { text });
+        console.log("📤 Mensaje enviado correctamente");
+    } catch (error) {
+        console.error("❌ Error al enviar mensaje:", error);
+    }
+};
 
-client.on('qr', (qr) => {
-    // Verás este QR en la pestaña "Logs" de Render
-    qrcode.generate(qr, { small: true });
-    console.log('📱 ESCANEA EL QR EN LOS LOGS DE RENDER');
-});
-
-client.on('ready', () => {
-    console.log('✅ Bot de WhatsApp listo y conectado');
-});
-
-client.initialize();
-
-export default client;
+// Ejecutar la conexión al importar el archivo
+connectToWhatsApp();
