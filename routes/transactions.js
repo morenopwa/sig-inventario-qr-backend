@@ -7,8 +7,8 @@ const router = express.Router();
 
 router.post('/', async (req, res) => {
     try {
-        // Recibimos operationType desde el frontend
-        const { quantity, itemName, personName, type, category, operationType } = req.body;
+        // 1. Recibimos 'unit' desde el frontend (IMPORTANTE)
+        const { quantity, unit, itemName, personName, type, category, operationType } = req.body;
 
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Faltan datos requeridos." });
@@ -16,15 +16,15 @@ router.post('/', async (req, res) => {
 
         const normalizedItemName = itemName.trim().toUpperCase();
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
+        const finalUnit = unit ? unit.toUpperCase() : "UND"; // Fallback a UND si no viene
         
-        // 1. CAMBIO CRUCIAL: Usar parseFloat en lugar de parseInt para detectar kilos/decimales
         const numericQuantity = parseFloat(quantity);
 
         if (isNaN(numericQuantity)) {
             return res.status(400).json({ success: false, message: "La cantidad debe ser un número válido." });
         }
 
-        // 2. Buscar el Item
+        // 2. Buscar o Crear el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
@@ -34,12 +34,17 @@ router.post('/', async (req, res) => {
                 stock: 0, 
                 category: category || 'Consumibles',
                 customId: `${currentPrefix}-${Date.now()}`, 
-                unit: 'Unit'
+                unit: finalUnit // ✅ Ahora guarda la unidad real (KG, GLN, etc.)
             });
             await item.save();
+        } else {
+            // Opcional: Actualizar la unidad si el item ya existe pero no tenía una válida
+            if (!item.unit || item.unit === 'Unit') {
+                item.unit = finalUnit;
+            }
         }
 
-        // 3. Lógica de Stock (Ahora acepta decimales)
+        // 3. Lógica de Stock
         if (type === 'OUT') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Stock insuficiente: ${item.stock}` });
@@ -56,18 +61,18 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 4. Preparar documentos de Transacción (Chat)
+        // 4. Guardar Transacción (Lo que lee el Chat)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
+            unit: finalUnit, // ✅ GUARDAMOS LA UNIDAD PARA EL CHAT
             itemName: normalizedItemName,
             personName: normalizedPersonName,
             type: type,
-            operationType: operationType // Guardamos si es SIMA, COMPRA, etc.
+            operationType: operationType 
         });
 
-        // 5. KARDEX (Movement) - Mejoramos el mapeo de tipos
-        // Si el frontend envió un operationType, lo usamos, si no, usamos el genérico
+        // 5. KARDEX (Movement)
         const finalKardexType = operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA');
 
         const newKardexEntry = new Movement({
@@ -75,6 +80,7 @@ router.post('/', async (req, res) => {
             materialName: normalizedItemName,
             type: finalKardexType, 
             quantity: numericQuantity,
+            unit: finalUnit, // ✅ TAMBIÉN AL KARDEX
             workerName: normalizedPersonName,
             date: new Date(),
             unitCost: 0,
@@ -82,14 +88,14 @@ router.post('/', async (req, res) => {
         });
 
         // 6. Guardado secuencial
-        console.log(`--- Procesando: ${numericQuantity} de ${normalizedItemName} (${finalKardexType}) ---`);
+        console.log(`--- Registrando: ${numericQuantity} ${finalUnit} de ${normalizedItemName} ---`);
         
         await item.save();
         await newTransaction.save();
 
         try {
             await newKardexEntry.save();
-            console.log("✅ Kardex actualizado con tipo:", finalKardexType);
+            console.log("✅ Kardex y Chat actualizados correctamente.");
         } catch (kardexError) {
             console.error("❌ ERROR EN KARDEX:", kardexError.message);
         }
@@ -109,6 +115,7 @@ router.post('/', async (req, res) => {
 // GET /api/transactions
 router.get('/', async (req, res) => {
     try {
+        // Asegúrate de que tu modelo Transaction.js tenga el campo 'unit'
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
         res.json(transactions);
     } catch (err) {
