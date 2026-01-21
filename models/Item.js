@@ -7,7 +7,7 @@ const ItemSchema = new mongoose.Schema({
     category: { type: String, default: 'General' },
     stock: { type: Number, default: 0 },
     minStock: { type: Number, default: 5 },
-    unit: { type: String, enum: ['Kg', 'Pz', 'Lt', 'm', 'Unit']},
+    unit: { type: String, uppercase: true, default: 'UND' },
     // El historial interno para cambios rápidos de stock
     history: [{
         action: { type: String, enum: ['IN', 'OUT'] },
