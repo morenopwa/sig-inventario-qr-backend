@@ -32,9 +32,9 @@ router.post('/', async (req, res) => {
             item = new Item({ 
                 name: normalizedItemName, 
                 stock: 0, 
-                category: category || 'General',
+                category: category || 'Consumibles',
                 customId: `${currentPrefix}-${Date.now()}`, 
-                unit: 'Unit'
+                unit: 'UND'
             });
             await item.save();
         }
