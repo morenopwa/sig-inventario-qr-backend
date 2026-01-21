@@ -6,7 +6,7 @@ const MovementSchema = new mongoose.Schema({
     materialName: { type: String, required: true }, // Copiamos el nombre por si el item se borra
     type: { type: String, enum: ['Compra', 'Salida', 'SIMA', 'RECAMBIO', 'COMPRA', 'ENTRADA', 'SALIDA'], required: true },
     quantity: { type: Number, required: true },
-    unit: { type: String, default: 'und' },
+    unit: { type: String, default: 'Unit' },
     unitCost: { type: Number, default: 0 },
     bottleCode: { type: String }, // El código de las botellas de gas
     workerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
