@@ -10,7 +10,7 @@ const UserSchema = new mongoose.Schema({
     role: { type: String }, 
     type: { type: String, enum: ['Trabajador', 'Externo', 'Visitante'], default: 'Trabajador' },
     workStartDate: { type: Date, default: Date.now },
-    accessLevel: { type: String, enum: ['SuperAdmin', 'Admin', 'User'], default: 'User' },
+    accessLevel: { type: String, enum: ['SuperAdmin', 'Admin', 'Usuario'], default: 'Usuario' },
     hourlyRate: { type: Number, default: 0 }
 }, { timestamps: true });
 
