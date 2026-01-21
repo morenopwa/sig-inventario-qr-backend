@@ -3,29 +3,32 @@ const { Client, LocalAuth } = pkg;
 import qrcode from 'qrcode-terminal';
 
 const client = new Client({
-    authStrategy: new LocalAuth(), // Guarda la sesión para no escanear siempre
+    authStrategy: new LocalAuth(),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        headless: true,
+        // Usar la variable de entorno de Render o una ruta por defecto
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process', // CRÍTICO: Para no agotar la RAM de Render
+            '--disable-gpu'
+        ],
     }
 });
 
-// Generar el QR en la consola
 client.on('qr', (qr) => {
+    // Verás este QR en la pestaña "Logs" de Render
     qrcode.generate(qr, { small: true });
-    console.log('--- ESCANEA EL QR PARA CONECTAR WHATSAPP ---');
+    console.log('📱 ESCANEA EL QR EN LOS LOGS DE RENDER');
 });
 
 client.on('ready', () => {
-    console.log('✅ WhatsApp conectado exitosamente');
-});
-
-// Opcional: Escribe !id en cualquier chat para saber su ID exacto
-client.on('message', async (msg) => {
-    if (msg.body === '!id') {
-        const chat = await msg.getChat();
-        console.log("ID del chat:", chat.id._serialized);
-        msg.reply("El ID de este chat es: " + chat.id._serialized);
-    }
+    console.log('✅ Bot de WhatsApp listo y conectado');
 });
 
 client.initialize();
