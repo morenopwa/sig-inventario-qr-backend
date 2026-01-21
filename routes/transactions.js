@@ -34,7 +34,7 @@ router.post('/', async (req, res) => {
                 stock: 0, 
                 category: category || 'Consumibles',
                 customId: `${currentPrefix}-${Date.now()}`, 
-                unit: 'UND'
+                unit: 'Unit'
             });
             await item.save();
         }
