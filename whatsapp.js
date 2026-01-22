@@ -1,7 +1,11 @@
+// backend/whatsapp.js
 import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 
 let sock;
+
+// CONFIGURACIÓN: Aquí pegarás el ID del grupo cuando lo obtengas
+const WHATSAPP_GROUP_ID = "120363XXXXXXXXXX@g.us"; 
 
 export const connectToWhatsApp = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -47,6 +51,20 @@ export const connectToWhatsApp = async () => {
             });
         }
     });
+};
+
+// ASEGÚRATE DE QUE ESTA FUNCIÓN TENGA EL 'export'
+export const sendWSMessage = async (text) => {
+    if (!sock) {
+        console.log("⚠️ WhatsApp no inicializado");
+        return;
+    }
+    try {
+        await sock.sendMessage(WHATSAPP_GROUP_ID, { text });
+        console.log("📤 Mensaje enviado correctamente");
+    } catch (error) {
+        console.error("❌ Error enviando mensaje:", error);
+    }
 };
 
 connectToWhatsApp();
