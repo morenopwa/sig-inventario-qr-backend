@@ -10,10 +10,13 @@ export const connectToWhatsApp = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: true,
-        browser: ["Sistema Asistencia", "Chrome", "1.0.0"]
-    });
+    auth: state,
+    printQRInTerminal: true,
+    browser: ["Sistema Asistencia", "Chrome", "1.0.0"],
+    syncFullHistory: false, // NO cargar mensajes viejos (MUY IMPORTANTE)
+    shouldSyncHistoryMessage: () => false, // Evita procesar historial
+    linkPreviewHighQuality: false // Ahorra RAM
+});
 
     sock.ev.on('creds.update', saveCreds);
 
