@@ -9,7 +9,6 @@ router.post('/', async (req, res) => {
     try {
         const { quantity, unit, itemName, personName, type, category, operationType } = req.body;
 
-        // Validaciones básicas
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Faltan datos obligatorios." });
         }
@@ -18,7 +17,6 @@ router.post('/', async (req, res) => {
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
         const numericQuantity = parseFloat(quantity);
 
-        // 1. Buscar el Item o crear uno nuevo si no existe
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
@@ -27,11 +25,11 @@ router.post('/', async (req, res) => {
                 stock: 0, 
                 totalStock: 0, 
                 category: category || 'Consumibles',
-                unit: unit || 'UND'
+                unit: unit || 'UND',
+                activeLoans: [] // Inicializar array de préstamos
             });
         }
 
-        // 2. LÓGICA DE STOCK (SIN WHATSAPP)
         if (type === 'OUT' || type === 'SALIDA') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
@@ -39,18 +37,35 @@ router.post('/', async (req, res) => {
                     message: `Stock insuficiente. Solo quedan ${item.stock} unidades.` 
                 });
             }
-            item.stock -= numericQuantity; // Se descuenta del almacén (préstamo)
-            // totalStock no cambia porque el objeto sigue siendo propiedad de la empresa
+            item.stock -= numericQuantity;
+
+            // --- AGREGADO: Registrar a quién se le presta ---
+            item.activeLoans.push({
+                workerName: normalizedPersonName,
+                quantity: numericQuantity,
+                date: new Date()
+            });
+            // -----------------------------------------------
+
         } else {
-            // Es una entrada (Compra o Devolución)
             item.stock += numericQuantity;
-            // Solo aumentamos el patrimonio total si es una "Compra" o "Ingreso inicial"
             if (operationType === 'COMPRA' || !item.totalStock) {
                 item.totalStock += numericQuantity;
             }
+
+            // --- AGREGADO: Si es devolución, limpiar el préstamo ---
+            if (operationType === 'DEVOLUCION' || type === 'IN') {
+                const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
+                if (loanIndex !== -1) {
+                    item.activeLoans[loanIndex].quantity -= numericQuantity;
+                    if (item.activeLoans[loanIndex].quantity <= 0) {
+                        item.activeLoans.splice(loanIndex, 1);
+                    }
+                }
+            }
+            // -------------------------------------------------------
         }
 
-        // 3. Crear registros de auditoría
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -58,7 +73,8 @@ router.post('/', async (req, res) => {
             itemName: normalizedItemName,
             personName: normalizedPersonName,
             type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
-            operationType: operationType 
+            operationType: operationType,
+            timestamp: new Date() // Aseguramos que tenga fecha para el sort
         });
 
         const newKardexEntry = new Movement({
@@ -71,7 +87,6 @@ router.post('/', async (req, res) => {
             date: new Date()
         });
 
-        // 4. Guardar todo en la base de datos
         await item.save();
         await newTransaction.save();
         await newKardexEntry.save();
@@ -86,6 +101,7 @@ router.post('/', async (req, res) => {
 
 router.get('/', async (req, res) => {
     try {
+        // Asegúrate de que el modelo Transaction tenga el campo timestamp
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
         res.json(transactions);
     } catch (err) {
