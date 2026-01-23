@@ -21,51 +21,43 @@ router.post('/', async (req, res) => {
         
         if (!item) {
             item = new Item({ 
+                customId: `ITM-${Date.now()}`,
                 name: normalizedItemName, 
                 stock: 0, 
                 totalStock: 0, 
-                category: category || 'Consumibles',
-                unit: unit || 'UND',
-                activeLoans: [] // Inicializar array de préstamos
+                category: category || 'General',
+                unit: unit || 'UND'
             });
         }
 
+        // --- LÓGICA DE STOCK Y PRÉSTAMOS ---
         if (type === 'OUT' || type === 'SALIDA') {
             if (item.stock < numericQuantity) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: `Stock insuficiente. Solo quedan ${item.stock} unidades.` 
-                });
+                return res.status(400).json({ success: false, message: `Solo hay ${item.stock} disponibles.` });
             }
-            item.stock -= numericQuantity;
-
-            // --- AGREGADO: Registrar a quién se le presta ---
-            item.activeLoans.push({
-                workerName: normalizedPersonName,
-                quantity: numericQuantity,
-                date: new Date()
-            });
-            // -----------------------------------------------
-
+            item.stock -= numericQuantity; // Baja el disponible
+            // Registrar quién se lo lleva
+            item.activeLoans.push({ workerName: normalizedPersonName, quantity: numericQuantity });
         } else {
+            // Es ENTRADA
             item.stock += numericQuantity;
-            if (operationType === 'COMPRA' || !item.totalStock) {
+            
+            // Solo sube el TOTAL si es compra o ingreso inicial
+            if (operationType === 'COMPRA' || !item.totalStock || item.totalStock === 0) {
                 item.totalStock += numericQuantity;
             }
 
-            // --- AGREGADO: Si es devolución, limpiar el préstamo ---
+            // Si es DEVOLUCIÓN, restamos de la deuda del trabajador
             if (operationType === 'DEVOLUCION' || type === 'IN') {
                 const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
                 if (loanIndex !== -1) {
                     item.activeLoans[loanIndex].quantity -= numericQuantity;
-                    if (item.activeLoans[loanIndex].quantity <= 0) {
-                        item.activeLoans.splice(loanIndex, 1);
-                    }
+                    if (item.activeLoans[loanIndex].quantity <= 0) item.activeLoans.splice(loanIndex, 1);
                 }
             }
-            // -------------------------------------------------------
         }
 
+        // Guardar logs para el Chat y el Kardex
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -73,8 +65,8 @@ router.post('/', async (req, res) => {
             itemName: normalizedItemName,
             personName: normalizedPersonName,
             type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
-            operationType: operationType,
-            timestamp: new Date() // Aseguramos que tenga fecha para el sort
+            operationType,
+            timestamp: new Date()
         });
 
         const newKardexEntry = new Movement({
@@ -91,22 +83,17 @@ router.post('/', async (req, res) => {
         await newTransaction.save();
         await newKardexEntry.save();
 
-        res.status(201).json({ success: true, message: "Registro completado con éxito" });
-
+        res.status(201).json({ success: true, message: "Inventario actualizado" });
     } catch (err) {
-        console.error("Error en transacción:", err);
-        res.status(500).json({ success: false, message: "Error interno del servidor" });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
 router.get('/', async (req, res) => {
     try {
-        // Asegúrate de que el modelo Transaction tenga el campo timestamp
         const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
         res.json(transactions);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default router;

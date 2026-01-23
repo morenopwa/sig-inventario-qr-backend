@@ -5,12 +5,11 @@ const ItemSchema = new mongoose.Schema({
     name: { type: String, required: true, uppercase: true },
     alias: { type: String, default: "" },
     category: { type: String, default: 'General' },
-    stock: { type: Number, default: 0 },      // STOCK DISPONIBLE (lo que hay en estante)
-    totalStock: { type: Number, default: 0 }, // STOCK TOTAL (patrimonio real de la empresa)
+    stock: { type: Number, default: 0 },      // Lo que hay en el estante
+    totalStock: { type: Number, default: 0 }, // Patrimonio (No baja en préstamos)
     minStock: { type: Number, default: 5 },
     unit: { type: String, uppercase: true, default: 'UND' },
     
-    // Rastreo de quién tiene las herramientas prestadas actualmente
     activeLoans: [{
         workerName: { type: String, uppercase: true },
         quantity: Number,
