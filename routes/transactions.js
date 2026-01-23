@@ -9,7 +9,6 @@ router.post('/', async (req, res) => {
     try {
         const { quantity, unit, itemName, personName, type, category, operationType } = req.body;
 
-        // Validaciones básicas
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Faltan datos obligatorios." });
         }
@@ -18,78 +17,79 @@ router.post('/', async (req, res) => {
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
         const numericQuantity = parseFloat(quantity);
 
-        // 1. Buscar el Item o crear uno nuevo si no existe
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
+            // Si el item no existe, lo creamos con stock inicial
             item = new Item({ 
+                customId: `ITM-${Date.now()}`,
                 name: normalizedItemName, 
                 stock: 0, 
                 totalStock: 0, 
-                category: category || 'Consumibles',
+                category: category || 'Herramientas',
                 unit: unit || 'UND'
             });
         }
 
-        // 2. LÓGICA DE STOCK (SIN WHATSAPP)
+        // --- LÓGICA DE CONTROL DE STOCK ---
         if (type === 'OUT' || type === 'SALIDA') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: `Stock insuficiente. Solo quedan ${item.stock} unidades.` 
+                    message: `Solo hay ${item.stock} disponibles en almacén.` 
                 });
             }
-            item.stock -= numericQuantity; // Se descuenta del almacén (préstamo)
-            // totalStock no cambia porque el objeto sigue siendo propiedad de la empresa
-        } else {
-            // Es una entrada (Compra o Devolución)
+            // 1. Descontamos del stock disponible (estante)
+            item.stock -= numericQuantity;
+            
+            // 2. Registramos quién se lo lleva (Préstamo activo)
+            item.activeLoans.push({
+                workerName: normalizedPersonName,
+                quantity: numericQuantity,
+                date: new Date()
+            });
+            // El totalStock NO se toca, la herramienta sigue siendo de la empresa.
+
+        } else if (type === 'IN' || type === 'ENTRADA') {
+            // 1. Aumentamos el stock disponible
             item.stock += numericQuantity;
-            // Solo aumentamos el patrimonio total si es una "Compra" o "Ingreso inicial"
-            if (operationType === 'COMPRA' || !item.totalStock) {
+
+            // 2. Si es una COMPRA o INGRESO, sube el patrimonio total
+            if (operationType === 'COMPRA' || !item.totalStock || item.totalStock === 0) {
                 item.totalStock += numericQuantity;
+            }
+
+            // 3. Si es una DEVOLUCION, buscamos el préstamo activo para cancelarlo
+            if (operationType === 'DEVOLUCION' || type === 'IN') {
+                const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
+                if (loanIndex !== -1) {
+                    item.activeLoans[loanIndex].quantity -= numericQuantity;
+                    // Si ya devolvió todo, eliminamos el registro del préstamo
+                    if (item.activeLoans[loanIndex].quantity <= 0) {
+                        item.activeLoans.splice(loanIndex, 1);
+                    }
+                }
             }
         }
 
-        // 3. Crear registros de auditoría
+        // Guardar auditoría
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
-            unit: item.unit,
             itemName: normalizedItemName,
             personName: normalizedPersonName,
             type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
             operationType: operationType 
         });
 
-        const newKardexEntry = new Movement({
-            itemId: item._id,
-            materialName: normalizedItemName,
-            type: operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA'), 
-            quantity: numericQuantity,
-            unit: item.unit,
-            workerName: normalizedPersonName,
-            date: new Date()
-        });
-
-        // 4. Guardar todo en la base de datos
         await item.save();
         await newTransaction.save();
-        await newKardexEntry.save();
 
-        res.status(201).json({ success: true, message: "Registro completado con éxito" });
+        res.status(201).json({ success: true, message: "Inventario actualizado correctamente" });
 
     } catch (err) {
-        console.error("Error en transacción:", err);
-        res.status(500).json({ success: false, message: "Error interno del servidor" });
-    }
-});
-
-router.get('/', async (req, res) => {
-    try {
-        const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
-        res.json(transactions);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Error:", err);
+        res.status(500).json({ success: false, message: "Error en el servidor" });
     }
 });
 
