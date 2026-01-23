@@ -18,11 +18,6 @@ router.post('/', async (req, res) => {
         const finalUnit = unit ? unit.toUpperCase() : "UND";
         const numericQuantity = parseFloat(quantity);
 
-        if (isNaN(numericQuantity)) {
-            return res.status(400).json({ success: false, message: "La cantidad debe ser un número válido." });
-        }
-
-        // 1. Buscar o Crear el Item
         let item = await Item.findOne({ name: normalizedItemName });
         
         if (!item) {
@@ -30,27 +25,29 @@ router.post('/', async (req, res) => {
             item = new Item({ 
                 name: normalizedItemName, 
                 stock: 0, 
+                totalStock: 0, // Nuevo campo para el total histórico
                 category: category || 'Consumibles',
                 customId: `${currentPrefix}-${Date.now()}`, 
                 unit: finalUnit 
             });
-            await item.save();
         }
 
-        // 2. LÓGICA DE ACTUALIZACIÓN DE STOCK (DESCUENTO AUTOMÁTICO)
+        // --- LÓGICA DE STOCK DOBLE ---
         if (type === 'OUT' || type === 'SALIDA') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: `Stock insuficiente. Disponible: ${item.stock} ${item.unit}` 
+                    message: `No disponible. Solo hay ${item.stock} en almacén.` 
                 });
             }
-            item.stock -= numericQuantity; // Aquí ocurre el descuento
+            item.stock -= numericQuantity; // Se presta: baja el disponible
+            // totalStock NO se toca, porque la herramienta sigue siendo de la empresa
         } else {
-            item.stock += numericQuantity; // Aquí ocurre el aumento (Entrada/Compra)
+            item.stock += numericQuantity; // Entra material nuevo
+            item.totalStock += numericQuantity; // Sube el patrimonio total
         }
 
-        // 3. Guardar historial en el Item
+        // Guardar logs
         item.history.push({
             action: type,
             quantity: numericQuantity,
@@ -58,40 +55,34 @@ router.post('/', async (req, res) => {
             timestamp: new Date()
         });
 
-        // 4. Guardar Transacción (Para el Chat)
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
             unit: finalUnit,
             itemName: normalizedItemName,
             personName: normalizedPersonName,
-            type: type === 'IN' || type === 'ENTRADA' ? 'IN' : 'OUT',
+            type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
             operationType: operationType 
         });
 
-        // 5. KARDEX (Para InventoryPage -> Kardex Activo)
-        const finalKardexType = operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA');
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
-            type: finalKardexType, 
+            type: operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA'), 
             quantity: numericQuantity,
             unit: finalUnit,
             workerName: normalizedPersonName,
             date: new Date(),
-            unitCost: 0,
             destination: operationType === 'SIMA' ? 'SIMA' : 'ALMACEN' 
         });
 
-        // 6. Guardado Final
         await item.save();
         await newTransaction.save();
         await newKardexEntry.save();
 
-        res.status(201).json({ success: true, message: "Stock actualizado y registro procesado" });
+        res.status(201).json({ success: true, message: "Inventario actualizado" });
 
     } catch (err) {
-        console.error("❌ ERROR:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
