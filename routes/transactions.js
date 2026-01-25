@@ -5,7 +5,7 @@ import Movement from '../models/Movement.js';
 
 const router = express.Router();
 
-// --- POST: REGISTRAR TRANSACCIÓN ---
+// POST: Registrar Transacción
 router.post('/', async (req, res) => {
     try {
         const { quantity, unit, itemName, personName, type, category, operationType, timestamp } = req.body;
@@ -15,12 +15,8 @@ router.post('/', async (req, res) => {
         }
 
         const normalizedItemName = itemName.trim().toUpperCase();
-        // CAMBIO AQUÍ: Ya no ponemos "GENERAL" por defecto si personName viene vacío, 
-        // dejamos que el frontend maneje la lógica del usuario actual.
-        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "DESCONOCIDO";
+        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "SISTEMA";
         const numericQuantity = parseFloat(quantity);
-        
-        // Usamos la fecha enviada por el frontend o la actual si no existe
         const finalDate = timestamp ? new Date(timestamp) : new Date();
 
         let item = await Item.findOne({ name: normalizedItemName });
@@ -36,22 +32,18 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // --- LÓGICA DE STOCK Y PRÉSTAMOS ---
+        // Lógica de Stock
         if (type === 'OUT' || type === 'SALIDA') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Solo hay ${item.stock} disponibles.` });
             }
-            item.stock -= numericQuantity; 
+            item.stock -= numericQuantity;
             item.activeLoans.push({ workerName: normalizedPersonName, quantity: numericQuantity });
         } else {
-            // Es ENTRADA (IN)
             item.stock += numericQuantity;
-            
             if (operationType === 'COMPRA' || !item.totalStock || item.totalStock === 0) {
                 item.totalStock += numericQuantity;
             }
-
-            // Lógica de devolución: Buscamos al trabajador en préstamos activos
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
             if (loanIndex !== -1) {
                 item.activeLoans[loanIndex].quantity -= numericQuantity;
@@ -59,7 +51,6 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Guardar logs para el Chat
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -68,10 +59,9 @@ router.post('/', async (req, res) => {
             personName: normalizedPersonName,
             type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
             operationType,
-            timestamp: finalDate // Guardamos con la fecha seleccionada
+            timestamp: finalDate
         });
 
-        // Guardar en el Kardex (Movimientos)
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
@@ -92,29 +82,19 @@ router.post('/', async (req, res) => {
     }
 });
 
-// --- GET: OBTENER TRANSACCIONES (FILTRADO POR FECHA) ---
+// GET: Obtener con filtro de fecha obligatorio para el chat
 router.get('/', async (req, res) => {
     try {
         const { date } = req.query;
         let query = {};
-
         if (date) {
-            // Creamos el rango de inicio y fin del día para la consulta
-            const start = new Date(date);
-            start.setHours(0, 0, 0, 0);
-            
-            const end = new Date(date);
-            end.setHours(23, 59, 59, 999);
-
+            const start = new Date(date + 'T00:00:00');
+            const end = new Date(date + 'T23:59:59');
             query.timestamp = { $gte: start, $lte: end };
         }
-
-        // Si no hay fecha, devuelve las últimas 50 por defecto
         const transactions = await Transaction.find(query).sort({ timestamp: 1 });
         res.json(transactions);
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default router;
