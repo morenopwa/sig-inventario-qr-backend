@@ -5,17 +5,23 @@ import Movement from '../models/Movement.js';
 
 const router = express.Router();
 
+// --- POST: REGISTRAR TRANSACCIÓN ---
 router.post('/', async (req, res) => {
     try {
-        const { quantity, unit, itemName, personName, type, category, operationType } = req.body;
+        const { quantity, unit, itemName, personName, type, category, operationType, timestamp } = req.body;
 
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Faltan datos obligatorios." });
         }
 
         const normalizedItemName = itemName.trim().toUpperCase();
-        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "GENERAL";
+        // CAMBIO AQUÍ: Ya no ponemos "GENERAL" por defecto si personName viene vacío, 
+        // dejamos que el frontend maneje la lógica del usuario actual.
+        const normalizedPersonName = personName ? personName.trim().toUpperCase() : "DESCONOCIDO";
         const numericQuantity = parseFloat(quantity);
+        
+        // Usamos la fecha enviada por el frontend o la actual si no existe
+        const finalDate = timestamp ? new Date(timestamp) : new Date();
 
         let item = await Item.findOne({ name: normalizedItemName });
         
@@ -35,29 +41,25 @@ router.post('/', async (req, res) => {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Solo hay ${item.stock} disponibles.` });
             }
-            item.stock -= numericQuantity; // Baja el disponible
-            // Registrar quién se lo lleva
+            item.stock -= numericQuantity; 
             item.activeLoans.push({ workerName: normalizedPersonName, quantity: numericQuantity });
         } else {
-            // Es ENTRADA
+            // Es ENTRADA (IN)
             item.stock += numericQuantity;
             
-            // Solo sube el TOTAL si es compra o ingreso inicial
             if (operationType === 'COMPRA' || !item.totalStock || item.totalStock === 0) {
                 item.totalStock += numericQuantity;
             }
 
-            // Si es DEVOLUCIÓN, restamos de la deuda del trabajador
-            if (operationType === 'DEVOLUCION' || type === 'IN') {
-                const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
-                if (loanIndex !== -1) {
-                    item.activeLoans[loanIndex].quantity -= numericQuantity;
-                    if (item.activeLoans[loanIndex].quantity <= 0) item.activeLoans.splice(loanIndex, 1);
-                }
+            // Lógica de devolución: Buscamos al trabajador en préstamos activos
+            const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
+            if (loanIndex !== -1) {
+                item.activeLoans[loanIndex].quantity -= numericQuantity;
+                if (item.activeLoans[loanIndex].quantity <= 0) item.activeLoans.splice(loanIndex, 1);
             }
         }
 
-        // Guardar logs para el Chat y el Kardex
+        // Guardar logs para el Chat
         const newTransaction = new Transaction({
             itemId: item._id,
             quantity: numericQuantity,
@@ -66,9 +68,10 @@ router.post('/', async (req, res) => {
             personName: normalizedPersonName,
             type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
             operationType,
-            timestamp: new Date()
+            timestamp: finalDate // Guardamos con la fecha seleccionada
         });
 
+        // Guardar en el Kardex (Movimientos)
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
@@ -76,7 +79,7 @@ router.post('/', async (req, res) => {
             quantity: numericQuantity,
             unit: item.unit,
             workerName: normalizedPersonName,
-            date: new Date()
+            date: finalDate
         });
 
         await item.save();
@@ -89,11 +92,29 @@ router.post('/', async (req, res) => {
     }
 });
 
+// --- GET: OBTENER TRANSACCIONES (FILTRADO POR FECHA) ---
 router.get('/', async (req, res) => {
     try {
-        const transactions = await Transaction.find().sort({ timestamp: -1 }).limit(50);
+        const { date } = req.query;
+        let query = {};
+
+        if (date) {
+            // Creamos el rango de inicio y fin del día para la consulta
+            const start = new Date(date);
+            start.setHours(0, 0, 0, 0);
+            
+            const end = new Date(date);
+            end.setHours(23, 59, 59, 999);
+
+            query.timestamp = { $gte: start, $lte: end };
+        }
+
+        // Si no hay fecha, devuelve las últimas 50 por defecto
+        const transactions = await Transaction.find(query).sort({ timestamp: 1 });
         res.json(transactions);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 export default router;
