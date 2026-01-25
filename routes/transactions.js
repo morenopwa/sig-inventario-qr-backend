@@ -16,31 +16,30 @@ router.post('/', async (req, res) => {
         const normalizedItemName = itemName.trim().toUpperCase();
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "SISTEMA";
         const numericQuantity = parseFloat(quantity);
+        
+        // CORRECCIÓN DE HORA: Si viene timestamp del frontend, usamos esa hora exacta, si no, la actual.
         const finalDate = timestamp ? new Date(timestamp) : new Date();
 
         let item = await Item.findOne({ name: normalizedItemName });
         
-        // Prioridad: 1. Categoría enviada, 2. Categoría existente, 3. 'Consumibles' (por defecto)
-        const finalCategory = category || (item ? item.category : 'Consumibles');
-
         if (!item) {
             item = new Item({ 
                 customId: customId || `ITM-${Date.now()}`,
                 name: normalizedItemName, 
                 stock: 0, 
                 totalStock: 0, 
-                category: finalCategory, 
+                category: category || 'CONSUMIBLES', 
                 unit: unit || 'UND'
             });
         } else {
-            // Si el ítem ya existe pero su categoría es 'General' o distinta a la enviada, la actualizamos
-            if (category && item.category !== category) {
+            if (category && (item.category === 'General' || !item.category)) {
                 item.category = category;
             }
         }
 
-        // --- LÓGICA DE STOCK ---
-        if (type === 'OUT' || type === 'SALIDA') {
+        // Lógica de Stock
+        const isSalida = type === 'OUT' || type === 'SALIDA';
+        if (isSalida) {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Solo hay ${item.stock} disponibles.` });
             }
@@ -51,7 +50,6 @@ router.post('/', async (req, res) => {
             if (operationType === 'COMPRA' || !item.totalStock || item.totalStock === 0) {
                 item.totalStock += numericQuantity;
             }
-            // Devolución
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
             if (loanIndex !== -1) {
                 item.activeLoans[loanIndex].quantity -= numericQuantity;
@@ -65,26 +63,31 @@ router.post('/', async (req, res) => {
             unit: item.unit,
             itemName: normalizedItemName,
             personName: normalizedPersonName,
-            type: (type === 'IN' || type === 'ENTRADA') ? 'IN' : 'OUT',
+            type: isSalida ? 'OUT' : 'IN',
             operationType,
             timestamp: finalDate
         });
 
+        // KARDEX CON TODOS LOS CAMPOS SOLICITADOS
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
-            type: operationType || (type === 'IN' ? 'ENTRADA' : 'SALIDA'), 
-            quantity: numericQuantity,
             unit: item.unit,
-            workerName: normalizedPersonName,
-            date: finalDate
+            quantity: numericQuantity,
+            workerName: normalizedPersonName, // TRABAJADOR
+            type: operationType || (isSalida ? 'SALIDA' : 'ENTRADA'),
+            date: finalDate,
+            // Campos para expansión futura de costos
+            inputQuantity: isSalida ? 0 : numericQuantity,
+            outputQuantity: isSalida ? numericQuantity : 0,
+            destination: isSalida ? 'OBRA / TRABAJADOR' : 'ALMACÉN'
         });
 
         await item.save();
         await newTransaction.save();
         await newKardexEntry.save();
 
-        res.status(201).json({ success: true, message: "Registro completado con éxito" });
+        res.status(201).json({ success: true, message: "Inventario actualizado" });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
