@@ -5,10 +5,9 @@ import Movement from '../models/Movement.js';
 
 const router = express.Router();
 
-// POST: Registrar Transacción
 router.post('/', async (req, res) => {
     try {
-        const { quantity, unit, itemName, personName, type, category, operationType, timestamp } = req.body;
+        const { quantity, unit, itemName, personName, type, category, operationType, timestamp, customId } = req.body;
 
         if (!itemName || !quantity || !type) {
             return res.status(400).json({ success: false, message: "Faltan datos obligatorios." });
@@ -21,18 +20,26 @@ router.post('/', async (req, res) => {
 
         let item = await Item.findOne({ name: normalizedItemName });
         
+        // Prioridad: 1. Categoría enviada, 2. Categoría existente, 3. 'Consumibles' (por defecto)
+        const finalCategory = category || (item ? item.category : 'Consumibles');
+
         if (!item) {
             item = new Item({ 
-                customId: `ITM-${Date.now()}`,
+                customId: customId || `ITM-${Date.now()}`,
                 name: normalizedItemName, 
                 stock: 0, 
                 totalStock: 0, 
-                category: category || 'General',
+                category: finalCategory, 
                 unit: unit || 'UND'
             });
+        } else {
+            // Si el ítem ya existe pero su categoría es 'General' o distinta a la enviada, la actualizamos
+            if (category && item.category !== category) {
+                item.category = category;
+            }
         }
 
-        // Lógica de Stock
+        // --- LÓGICA DE STOCK ---
         if (type === 'OUT' || type === 'SALIDA') {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Solo hay ${item.stock} disponibles.` });
@@ -44,6 +51,7 @@ router.post('/', async (req, res) => {
             if (operationType === 'COMPRA' || !item.totalStock || item.totalStock === 0) {
                 item.totalStock += numericQuantity;
             }
+            // Devolución
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPersonName);
             if (loanIndex !== -1) {
                 item.activeLoans[loanIndex].quantity -= numericQuantity;
@@ -76,13 +84,12 @@ router.post('/', async (req, res) => {
         await newTransaction.save();
         await newKardexEntry.save();
 
-        res.status(201).json({ success: true, message: "Inventario actualizado" });
+        res.status(201).json({ success: true, message: "Registro completado con éxito" });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// GET: Obtener con filtro de fecha obligatorio para el chat
 router.get('/', async (req, res) => {
     try {
         const { date } = req.query;
