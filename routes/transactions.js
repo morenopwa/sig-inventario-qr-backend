@@ -17,11 +17,12 @@ router.post('/', async (req, res) => {
         const normalizedPersonName = personName ? personName.trim().toUpperCase() : "SISTEMA";
         const numericQuantity = parseFloat(quantity);
         
-        // CORRECCIÓN DE HORA: Si viene timestamp del frontend, usamos esa hora exacta, si no, la actual.
+        // Se usa la fecha enviada (con la hora del sistema) o la actual
         const finalDate = timestamp ? new Date(timestamp) : new Date();
 
         let item = await Item.findOne({ name: normalizedItemName });
         
+        // Si el ítem no existe o su categoría es 'General', aplicamos la categoría enviada
         if (!item) {
             item = new Item({ 
                 customId: customId || `ITM-${Date.now()}`,
@@ -31,14 +32,13 @@ router.post('/', async (req, res) => {
                 category: category || 'CONSUMIBLES', 
                 unit: unit || 'UND'
             });
-        } else {
-            if (category && (item.category === 'General' || !item.category)) {
-                item.category = category;
-            }
+        } else if (category && (item.category === 'General' || !item.category)) {
+            item.category = category;
         }
 
-        // Lógica de Stock
         const isSalida = type === 'OUT' || type === 'SALIDA';
+
+        // Lógica de Stock y Préstamos
         if (isSalida) {
             if (item.stock < numericQuantity) {
                 return res.status(400).json({ success: false, message: `Solo hay ${item.stock} disponibles.` });
@@ -68,31 +68,30 @@ router.post('/', async (req, res) => {
             timestamp: finalDate
         });
 
-        // KARDEX CON TODOS LOS CAMPOS SOLICITADOS
         const newKardexEntry = new Movement({
             itemId: item._id,
             materialName: normalizedItemName,
             unit: item.unit,
             quantity: numericQuantity,
-            workerName: normalizedPersonName, // TRABAJADOR
+            workerName: normalizedPersonName,
             type: operationType || (isSalida ? 'SALIDA' : 'ENTRADA'),
             date: finalDate,
-            // Campos para expansión futura de costos
             inputQuantity: isSalida ? 0 : numericQuantity,
             outputQuantity: isSalida ? numericQuantity : 0,
-            destination: isSalida ? 'OBRA / TRABAJADOR' : 'ALMACÉN'
+            destination: isSalida ? 'OBRA' : 'ALMACÉN'
         });
 
         await item.save();
         await newTransaction.save();
         await newKardexEntry.save();
 
-        res.status(201).json({ success: true, message: "Inventario actualizado" });
+        res.status(201).json({ success: true, message: "Registro exitoso" });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
+// Obtener transacciones por fecha
 router.get('/', async (req, res) => {
     try {
         const { date } = req.query;
@@ -102,7 +101,8 @@ router.get('/', async (req, res) => {
             const end = new Date(date + 'T23:59:59');
             query.timestamp = { $gte: start, $lte: end };
         }
-        const transactions = await Transaction.find(query).sort({ timestamp: 1 });
+        // Ordenamos por timestamp descendente para que lo más nuevo salga arriba
+        const transactions = await Transaction.find(query).sort({ timestamp: -1 });
         res.json(transactions);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
