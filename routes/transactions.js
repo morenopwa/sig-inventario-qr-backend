@@ -13,21 +13,18 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ success: false, message: "Datos incompletos" });
         }
 
-        // Procesar la fecha local recibida
+        // Fecha local recibida del cliente
         const finalDate = new Date(timestamp);
-
         const normalizedItem = itemName.trim().toUpperCase();
         const normalizedPerson = personName.trim().toUpperCase();
+        const numericQty = parseFloat(quantity);
 
         let item = await Item.findOne({ name: normalizedItem });
         
-        // --- CORRECCIÓN AQUÍ: Generar customId si el ítem es nuevo ---
+        // Crear ítem si no existe con customId obligatorio
         if (!item) {
-            // Generamos un ID basado en el tiempo para que sea único y cumpla el 'required'
-            const newCustomId = `ITM-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            
             item = new Item({ 
-                customId: newCustomId, 
+                customId: `ITM-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 name: normalizedItem, 
                 stock: 0, 
                 totalStock: 0,
@@ -36,21 +33,24 @@ router.post('/', async (req, res) => {
             });
         }
 
-        const numericQty = parseFloat(quantity);
         const isSalida = type === 'OUT' || type === 'SALIDA';
 
-        // Lógica de Stock
+        // Lógica de Stock y Patrimonio
         if (isSalida) {
             item.stock -= numericQty;
-            item.activeLoans.push({ workerName: normalizedPerson, quantity: numericQty, date: finalDate });
+            item.activeLoans.push({ 
+                workerName: normalizedPerson, 
+                quantity: numericQty, 
+                date: finalDate 
+            });
         } else {
             item.stock += numericQty;
-            // Si el origen es SIMA o es una operación de COMPRA, sube el patrimonio (totalStock)
+            // Si es SIMA o COMPRA, aumenta el totalStock (Patrimonio)
             if (normalizedPerson === 'SIMA' || operationType === 'COMPRA') {
                 item.totalStock = (item.totalStock || 0) + numericQty;
             }
             
-            // Si el trabajador está devolviendo (Entrada), restamos de sus préstamos activos
+            // Reducir deuda de préstamo si el trabajador devuelve
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPerson);
             if (loanIndex !== -1) {
                 item.activeLoans[loanIndex].quantity -= numericQty;
@@ -60,7 +60,9 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Crear la transacción para el historial del chat
+        // Definir el tipo de movimiento para el historial y Kardex
+        const finalOpType = normalizedPerson === 'SIMA' ? 'ENTRADA SIMA' : (operationType || (isSalida ? 'SALIDA' : 'ENTRADA'));
+
         const newTx = new Transaction({
             itemId: item._id,
             quantity: numericQty,
@@ -68,21 +70,21 @@ router.post('/', async (req, res) => {
             itemName: item.name,
             personName: normalizedPerson,
             type: isSalida ? 'OUT' : 'IN',
-            operationType: normalizedPerson === 'SIMA' ? 'COMPRA' : operationType,
+            operationType: finalOpType,
             timestamp: finalDate
         });
 
-        // Crear el movimiento para el Kardex
         const newKardex = new Movement({
             itemId: item._id,
             materialName: item.name,
             unit: item.unit,
             quantity: numericQty,
             workerName: normalizedPerson,
-            type: normalizedPerson === 'SIMA' ? 'ENTRADA SIMA' : (isSalida ? 'SALIDA' : 'ENTRADA'),
+            type: finalOpType,
             date: finalDate,
             inputQuantity: isSalida ? 0 : numericQty,
-            outputQuantity: isSalida ? numericQty : 0
+            outputQuantity: isSalida ? numericQty : 0,
+            destination: isSalida ? 'OBRA' : 'ALMACÉN'
         });
 
         await item.save();
@@ -96,7 +98,6 @@ router.post('/', async (req, res) => {
     }
 });
 
-// GET para obtener transacciones filtradas por fecha (Usado por el Chat)
 router.get('/', async (req, res) => {
     try {
         const { date } = req.query;
