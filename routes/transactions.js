@@ -13,7 +13,7 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ success: false, message: "Datos incompletos" });
         }
 
-        // Fecha local recibida del cliente
+        // Procesar fecha local sin conversiones UTC accidentales
         const finalDate = new Date(timestamp);
         const normalizedItem = itemName.trim().toUpperCase();
         const normalizedPerson = personName.trim().toUpperCase();
@@ -21,7 +21,6 @@ router.post('/', async (req, res) => {
 
         let item = await Item.findOne({ name: normalizedItem });
         
-        // Crear ítem si no existe con customId obligatorio
         if (!item) {
             item = new Item({ 
                 customId: `ITM-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -33,10 +32,16 @@ router.post('/', async (req, res) => {
             });
         }
 
-        const isSalida = type === 'OUT' || type === 'SALIDA';
+        // Si la persona es SIMA, forzamos que sea una ENTRADA (IN)
+        const isSima = normalizedPerson === 'SIMA';
+        const isSalida = !isSima && (type === 'OUT' || type === 'SALIDA');
 
-        // Lógica de Stock y Patrimonio
-        if (isSalida) {
+        if (isSima) {
+            // Lógica SIMA: Siempre suma al stock y al patrimonio
+            item.stock += numericQty;
+            item.totalStock = (item.totalStock || 0) + numericQty;
+        } else if (isSalida) {
+            // Lógica Salida: Resta stock y agrega a préstamos
             item.stock -= numericQty;
             item.activeLoans.push({ 
                 workerName: normalizedPerson, 
@@ -44,13 +49,8 @@ router.post('/', async (req, res) => {
                 date: finalDate 
             });
         } else {
+            // Lógica Entrada (Devolución): Suma stock y descuenta préstamo
             item.stock += numericQty;
-            // Si es SIMA o COMPRA, aumenta el totalStock (Patrimonio)
-            if (normalizedPerson === 'SIMA' || operationType === 'COMPRA') {
-                item.totalStock = (item.totalStock || 0) + numericQty;
-            }
-            
-            // Reducir deuda de préstamo si el trabajador devuelve
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPerson);
             if (loanIndex !== -1) {
                 item.activeLoans[loanIndex].quantity -= numericQty;
@@ -60,8 +60,7 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Definir el tipo de movimiento para el historial y Kardex
-        const finalOpType = normalizedPerson === 'SIMA' ? 'ENTRADA SIMA' : (operationType || (isSalida ? 'SALIDA' : 'ENTRADA'));
+        const finalOpType = isSima ? 'ENTRADA SIMA' : (isSalida ? 'SALIDA' : 'ENTRADA');
 
         const newTx = new Transaction({
             itemId: item._id,
@@ -107,7 +106,8 @@ router.get('/', async (req, res) => {
             const end = new Date(`${date}T23:59:59`);
             query.timestamp = { $gte: start, $lte: end };
         }
-        const transactions = await Transaction.find(query).sort({ timestamp: -1 });
+        // ORDENADO DE ARRIBA HACIA ABAJO (Cronológico ascendente)
+        const transactions = await Transaction.find(query).sort({ timestamp: 1 });
         res.json(transactions);
     } catch (err) { 
         res.status(500).json({ error: err.message }); 
