@@ -98,11 +98,12 @@ router.get('/', async (req, res) => {
         const { date } = req.query;
         let query = {};
         if (date) {
+            // Buscamos desde las 00:00 hasta las 23:59 del string enviado
+            // sin dejar que la zona horaria UTC mueva los límites
             const start = new Date(`${date}T00:00:00`);
             const end = new Date(`${date}T23:59:59`);
             query.timestamp = { $gte: start, $lte: end };
         }
-        // Orden ascendente para el chat: 1
         const transactions = await Transaction.find(query).sort({ timestamp: 1 });
         res.json(transactions);
     } catch (err) { res.status(500).json({ error: err.message }); }
