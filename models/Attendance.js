@@ -6,6 +6,7 @@ const AttendanceSchema = new mongoose.Schema({
     date: { type: String, required: true }, // Format "YYYY-MM-DD"
     checkIn: { type: Date },
     checkOut: { type: Date },
+    manualHours: { type: Number, default: null },
     observations: { type: String, default: 'No issues' }
 }, { timestamps: true });
 
