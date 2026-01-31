@@ -113,4 +113,19 @@ router.get('/reporte', async (req, res) => {
     }
 });
 
+// ACTUALIZAR HORAS MANUALMENTE (Para cuadrar pagos)
+router.patch('/:id', async (req, res) => {
+    try {
+        const { manualHours, checkIn, checkOut } = req.body;
+        const asistencia = await Attendance.findByIdAndUpdate(
+            req.params.id, 
+            { manualHours, checkIn, checkOut },
+            { new: true }
+        );
+        res.json({ success: true, asistencia });
+    } catch (error) {
+        res.status(500).json({ message: "Error al actualizar" });
+    }
+});
+
 export default router;
