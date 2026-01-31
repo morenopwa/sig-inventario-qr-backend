@@ -4,17 +4,12 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export const getPayrollReport = async (req, res) => {
-    const { month } = req.query; // "2026-01"
+    const { month } = req.query; // Espera "2026-01"
     
     try {
-        // Ajustamos el rango de búsqueda para abarcar todo el mes
-        const startOfMonth = new Date(`${month}-01T00:00:00`);
-        const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0, 23, 59, 59);
-
-        // 1. Buscamos asistencias. Nota: usa 'worker' o 'userId' según tu modelo real.
-        // En tu routes/attendance.js usas 'worker', así que lo corregimos aquí:
+        // Filtramos usando regex para que coincida con cualquier fecha que empiece con el mes elegido
         const logs = await Attendance.find({
-            date: { $gte: month + "-01", $lte: month + "-31" } // Filtro por string de fecha YYYY-MM-DD
+            date: { $regex: new RegExp(`^${month}`) } 
         }).populate('worker', 'name lastName role hourlyRate');
 
         const reportMap = {};
@@ -23,7 +18,6 @@ export const getPayrollReport = async (req, res) => {
             if (!log.worker) return;
             const uid = log.worker._id.toString();
 
-            // Si el trabajador no está en el mapa, lo inicializamos
             if (!reportMap[uid]) {
                 reportMap[uid] = {
                     _id: uid,
@@ -33,38 +27,41 @@ export const getPayrollReport = async (req, res) => {
                     hourlyRate: log.worker.hourlyRate || 0,
                     totalHours: 0,
                     daysCount: 0,
-                    dailyDetails: [] // Aquí guardamos el desglose diario
+                    dailyDetails: []
                 };
             }
 
-            // Calculamos horas del registro actual
             let hoursForThisDay = 0;
             
-            // Prioridad: 1. Horas manuales (ajustadas), 2. Cálculo automático entrada/salida
-            if (log.manualHours !== undefined) {
-                hoursForThisDay = log.manualHours;
+            // CORRECCIÓN DE LÓGICA: 
+            // Verificamos si existe un ajuste manual (incluso si es 0)
+            const hasManualAdjustment = log.manualHours !== undefined && log.manualHours !== null;
+
+            if (hasManualAdjustment) {
+                hoursForThisDay = Number(log.manualHours);
             } else if (log.checkIn && log.checkOut) {
                 const diff = new Date(log.checkOut) - new Date(log.checkIn);
                 hoursForThisDay = Math.max(0, diff / (1000 * 60 * 60));
             }
 
-            if (hoursForThisDay > 0) {
+            // Solo sumamos al reporte si hubo actividad o hay un ajuste manual
+            if (hoursForThisDay > 0 || hasManualAdjustment) {
                 reportMap[uid].totalHours += hoursForThisDay;
-                reportMap[uid].daysCount += 1;
+                // Solo contamos el día si realmente trabajó o se le asignaron horas
+                if (hoursForThisDay > 0) reportMap[uid].daysCount += 1;
                 
-                // Agregamos al desglose diario para el "acordeón" del frontend
                 reportMap[uid].dailyDetails.push({
                     attendanceId: log._id,
-                    date: log.date, // YYYY-MM-DD
+                    date: log.date,
                     dayName: format(new Date(log.date + "T12:00:00"), "EEEE dd", { locale: es }),
                     hours: Number(hoursForThisDay.toFixed(2)),
-                    isManual: log.manualHours !== undefined
+                    isManual: hasManualAdjustment
                 });
             }
         });
 
-        // Ordenar los detalles diarios por fecha para que el usuario los vea en orden
         const finalReport = Object.values(reportMap).map(worker => {
+            // Ordenamos los días del 1 al 31
             worker.dailyDetails.sort((a, b) => a.date.localeCompare(b.date));
             return worker;
         });
