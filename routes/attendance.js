@@ -113,18 +113,19 @@ router.get('/reporte', async (req, res) => {
     }
 });
 
-// ACTUALIZAR HORAS MANUALMENTE (Para cuadrar pagos)
-router.patch('/:id', async (req, res) => {
+// ACTUALIZAR ASISTENCIA (Para cuadrar horas manualmente)
+router.patch('/update-hours/:id', async (req, res) => {
     try {
-        const { manualHours, checkIn, checkOut } = req.body;
-        const asistencia = await Attendance.findByIdAndUpdate(
+        const { manualHours } = req.body;
+        // Buscamos la asistencia por ID y guardamos las horas manuales
+        const updated = await Attendance.findByIdAndUpdate(
             req.params.id, 
-            { manualHours, checkIn, checkOut },
+            { manualHours: Number(manualHours) },
             { new: true }
         );
-        res.json({ success: true, asistencia });
+        res.json({ success: true, data: updated });
     } catch (error) {
-        res.status(500).json({ message: "Error al actualizar" });
+        res.status(500).json({ message: "Error al actualizar horas" });
     }
 });
 
