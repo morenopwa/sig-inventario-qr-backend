@@ -117,14 +117,25 @@ router.get('/reporte', async (req, res) => {
 router.patch('/update-hours/:id', async (req, res) => {
     try {
         const { manualHours } = req.body;
-        // Buscamos la asistencia por ID y guardamos las horas manuales
+        
+        // Convertimos a número. Si es vacío o no es número, enviamos error.
+        if (manualHours === undefined || isNaN(Number(manualHours))) {
+            return res.status(400).json({ message: "Valor de horas no válido" });
+        }
+
         const updated = await Attendance.findByIdAndUpdate(
             req.params.id, 
             { manualHours: Number(manualHours) },
             { new: true }
         );
+
+        if (!updated) {
+            return res.status(404).json({ message: "Registro no encontrado" });
+        }
+
         res.json({ success: true, data: updated });
     } catch (error) {
+        console.error("Error al actualizar horas:", error);
         res.status(500).json({ message: "Error al actualizar horas" });
     }
 });

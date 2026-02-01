@@ -7,7 +7,7 @@ export const getPayrollReport = async (req, res) => {
     const { month } = req.query; 
     
     try {
-        // Buscamos los registros del mes
+        // Buscamos los registros del mes (ej: "2026-01")
         const logs = await Attendance.find({
             date: { $regex: new RegExp(`^${month}`) } 
         }).populate('worker', 'name lastName role hourlyRate');
@@ -32,41 +32,38 @@ export const getPayrollReport = async (req, res) => {
             }
 
             let hoursForThisDay = 0;
-            // IMPORTANTE: Verificar explícitamente si existe ajuste manual
             const hasManual = log.manualHours !== undefined && log.manualHours !== null;
 
             if (hasManual) {
-                // Forzamos que sea número para evitar concatenación de strings
                 hoursForThisDay = Number(log.manualHours);
             } else if (log.checkIn && log.checkOut) {
                 const diff = new Date(log.checkOut) - new Date(log.checkIn);
                 hoursForThisDay = diff / (1000 * 60 * 60);
             }
 
-            // Si el día tiene horas (o ajuste 0), lo procesamos
+            // Procesamos si hay actividad
             if (hoursForThisDay >= 0 || hasManual) {
-                // Sumamos al total acumulado del trabajador ANTES del redondeo visual
                 reportMap[uid].totalHours += hoursForThisDay;
                 
                 if (hoursForThisDay > 0) {
                     reportMap[uid].daysCount += 1;
                 }
                 
+                // Usamos una fecha base segura para el formato
+                const dateObj = new Date(log.date + "T12:00:00");
+                
                 reportMap[uid].dailyDetails.push({
                     attendanceId: log._id,
                     date: log.date,
-                    dayName: format(new Date(log.date + "T12:00:00"), "EEEE dd", { locale: es }),
-                    hours: Number(hoursForThisDay.toFixed(2)), // Redondeo para la vista diaria
+                    dayName: format(dateObj, "EEEE dd", { locale: es }),
+                    hours: Number(hoursForThisDay.toFixed(2)),
                     isManual: hasManual
                 });
             }
         });
 
-        // Formateo final para enviar al Frontend
         const finalReport = Object.values(reportMap).map(worker => {
-            // Ordenar por fecha
             worker.dailyDetails.sort((a, b) => a.date.localeCompare(b.date));
-            // REDONDEO FINAL: Clave para que el sueldo sea exacto
             worker.totalHours = Number(worker.totalHours.toFixed(2));
             return worker;
         });
