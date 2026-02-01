@@ -55,8 +55,7 @@ export const getPayrollReport = async (req, res) => {
                 reportMap[uid].dailyDetails.push({
                     attendanceId: log._id,
                     date: log.date,
-                    dayName: format(dateObj, "EEEE dd", { locale: es }),
-                    hours: Number(hoursForThisDay.toFixed(2)),
+                    dayName: format(new Date(log.date + "T12:00:00"), "EEEE dd", { locale: es }),                    hours: Number(hoursForThisDay.toFixed(2)),
                     isManual: hasManual
                 });
             }
@@ -64,7 +63,8 @@ export const getPayrollReport = async (req, res) => {
 
         const finalReport = Object.values(reportMap).map(worker => {
             worker.dailyDetails.sort((a, b) => a.date.localeCompare(b.date));
-            worker.totalHours = Number(worker.totalHours.toFixed(2));
+            worker.totalHours = Number(Number(worker.totalHours).toFixed(2))
+            console.log(totalHours);
             return worker;
         });
 
