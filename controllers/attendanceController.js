@@ -64,7 +64,7 @@ export const getPayrollReport = async (req, res) => {
         const finalReport = Object.values(reportMap).map(worker => {
             worker.dailyDetails.sort((a, b) => a.date.localeCompare(b.date));
             worker.totalHours = Number(Number(worker.totalHours).toFixed(2))
-            console.log(totalHours);
+            console.log(worker.totalHours);
             return worker;
         });
 
