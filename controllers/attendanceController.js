@@ -12,6 +12,9 @@ export const getPayrollReport = async (req, res) => {
             date: { $regex: new RegExp(`^${month}`) } 
         }).populate('worker', 'name lastName role hourlyRate');
 
+        console.log("¿Viene hourlyRate del primer log?", logs[0]?.worker?.hourlyRate);
+        console.log("Worker completo poblado:", logs[0]?.worker);
+
         const reportMap = {};
 
         logs.forEach(log => {

@@ -7,10 +7,19 @@ const router = express.Router();
 
 router.post('/', async (req, res) => {
     try {
-        const { quantity, unit, itemName, personName, type, category, operationType, timestamp } = req.body;
+        const { 
+            quantity, 
+            unit, 
+            itemName, 
+            personName, 
+            type, 
+            category, 
+            timestamp 
+        } = req.body;
 
-        if (!itemName || !quantity) {
-            return res.status(400).json({ success: false, message: "Datos incompletos" });
+        // Validación básica
+        if (!itemName || quantity === undefined) {
+            return res.status(400).json({ success: false, message: "Datos incompletos (nombre o cantidad)" });
         }
 
         const finalDate = new Date(timestamp);
@@ -18,26 +27,35 @@ router.post('/', async (req, res) => {
         const normalizedPerson = personName.trim().toUpperCase();
         const numericQty = parseFloat(quantity);
 
+        // 1. BUSCAR O CREAR EL ÍTEM
         let item = await Item.findOne({ name: normalizedItem });
         
         if (!item) {
+            // Si no existe, lo creamos con valores por defecto
             item = new Item({ 
                 customId: `ITM-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 name: normalizedItem, 
                 stock: 0, 
                 totalStock: 0,
                 category: category || 'CONSUMIBLES', 
-                unit: unit || 'UND' 
+                unit: unit || 'UND',
+                activeLoans: [] 
             });
+            // Guardamos inicialmente para obtener el _id si es nuevo
+            await item.save();
         }
 
+        // 2. LÓGICA DE MOVIMIENTO (Salida por defecto vs Entrada SIMA)
         const isSima = normalizedPerson === 'SIMA';
-        const isSalida = !isSima && (type === 'OUT' || type === 'SALIDA');
+        // Prioridad: Si no es SIMA y el tipo es OUT (o no se definió), es SALIDA
+        const isSalida = !isSima && (type === 'OUT' || type === 'SALIDA' || !type);
 
         if (isSima) {
+            // ENTRADA DESDE PROVEEDOR (SIMA)
             item.stock += numericQty;
             item.totalStock = (item.totalStock || 0) + numericQty;
         } else if (isSalida) {
+            // SALIDA A TRABAJADOR
             item.stock -= numericQty;
             item.activeLoans.push({ 
                 workerName: normalizedPerson, 
@@ -45,7 +63,7 @@ router.post('/', async (req, res) => {
                 date: finalDate 
             });
         } else {
-            // ENTRADA: Devolución del trabajador
+            // ENTRADA (Devolución del trabajador)
             item.stock += numericQty;
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPerson);
             if (loanIndex !== -1) {
@@ -56,8 +74,10 @@ router.post('/', async (req, res) => {
             }
         }
 
+        // 3. DEFINIR TIPOS DE OPERACIÓN PARA LOGS
         const finalOpType = isSima ? 'ENTRADA SIMA' : (isSalida ? 'SALIDA' : 'ENTRADA');
 
+        // 4. CREAR REGISTRO DE TRANSACCIÓN (Para el Chat)
         const newTx = new Transaction({
             itemId: item._id,
             quantity: numericQty,
@@ -69,6 +89,7 @@ router.post('/', async (req, res) => {
             timestamp: finalDate
         });
 
+        // 5. CREAR REGISTRO EN KARDEX (Movements)
         const newKardex = new Movement({
             itemId: item._id,
             materialName: item.name,
@@ -82,11 +103,12 @@ router.post('/', async (req, res) => {
             destination: isSalida ? 'OBRA' : 'ALMACÉN'
         });
 
+        // 6. PERSISTENCIA FINAL
         await item.save();
         await newTx.save();
         await newKardex.save();
 
-        res.status(201).json({ success: true });
+        res.status(201).json({ success: true, data: newTx });
     } catch (err) {
         console.error("Error en registro:", err);
         res.status(500).json({ success: false, message: err.message });
@@ -98,15 +120,15 @@ router.get('/', async (req, res) => {
         const { date } = req.query;
         let query = {};
         if (date) {
-            // Buscamos desde las 00:00 hasta las 23:59 del string enviado
-            // sin dejar que la zona horaria UTC mueva los límites
             const start = new Date(`${date}T00:00:00`);
             const end = new Date(`${date}T23:59:59`);
             query.timestamp = { $gte: start, $lte: end };
         }
         const transactions = await Transaction.find(query).sort({ timestamp: 1 });
         res.json(transactions);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 export default router;
