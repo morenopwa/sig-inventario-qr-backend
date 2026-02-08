@@ -7,19 +7,10 @@ const router = express.Router();
 
 router.post('/', async (req, res) => {
     try {
-        const { 
-            quantity, 
-            unit, 
-            itemName, 
-            personName, 
-            type, 
-            category, 
-            timestamp 
-        } = req.body;
+        const { quantity, unit, itemName, personName, type, category, timestamp } = req.body;
 
-        // Validación básica
-        if (!itemName || quantity === undefined) {
-            return res.status(400).json({ success: false, message: "Datos incompletos (nombre o cantidad)" });
+        if (!itemName || !quantity) {
+            return res.status(400).json({ success: false, message: "Datos incompletos" });
         }
 
         const finalDate = new Date(timestamp);
@@ -27,35 +18,29 @@ router.post('/', async (req, res) => {
         const normalizedPerson = personName.trim().toUpperCase();
         const numericQty = parseFloat(quantity);
 
-        // 1. BUSCAR O CREAR EL ÍTEM
+        // 1. BUSCAR O CREAR ÍTEM
         let item = await Item.findOne({ name: normalizedItem });
-        
         if (!item) {
-            // Si no existe, lo creamos con valores por defecto
             item = new Item({ 
-                customId: `ITM-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                customId: `ITM-${Date.now()}`,
                 name: normalizedItem, 
                 stock: 0, 
                 totalStock: 0,
                 category: category || 'CONSUMIBLES', 
                 unit: unit || 'UND',
-                activeLoans: [] 
+                activeLoans: []
             });
-            // Guardamos inicialmente para obtener el _id si es nuevo
-            await item.save();
+            await item.save(); // Guardamos para tener el _id
         }
 
-        // 2. LÓGICA DE MOVIMIENTO (Salida por defecto vs Entrada SIMA)
         const isSima = normalizedPerson === 'SIMA';
-        // Prioridad: Si no es SIMA y el tipo es OUT (o no se definió), es SALIDA
-        const isSalida = !isSima && (type === 'OUT' || type === 'SALIDA' || !type);
+        const isSalida = !isSima && (type === 'OUT' || type === 'SALIDA');
 
+        // 2. ACTUALIZAR STOCK Y PRÉSTAMOS
         if (isSima) {
-            // ENTRADA DESDE PROVEEDOR (SIMA)
             item.stock += numericQty;
             item.totalStock = (item.totalStock || 0) + numericQty;
         } else if (isSalida) {
-            // SALIDA A TRABAJADOR
             item.stock -= numericQty;
             item.activeLoans.push({ 
                 workerName: normalizedPerson, 
@@ -63,7 +48,7 @@ router.post('/', async (req, res) => {
                 date: finalDate 
             });
         } else {
-            // ENTRADA (Devolución del trabajador)
+            // Es una DEVOLUCIÓN (ENTRADA de trabajador)
             item.stock += numericQty;
             const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPerson);
             if (loanIndex !== -1) {
@@ -74,10 +59,9 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // 3. DEFINIR TIPOS DE OPERACIÓN PARA LOGS
         const finalOpType = isSima ? 'ENTRADA SIMA' : (isSalida ? 'SALIDA' : 'ENTRADA');
 
-        // 4. CREAR REGISTRO DE TRANSACCIÓN (Para el Chat)
+        // 3. REGISTRAR TRANSACCIÓN (Para el chat)
         const newTx = new Transaction({
             itemId: item._id,
             quantity: numericQty,
@@ -89,7 +73,7 @@ router.post('/', async (req, res) => {
             timestamp: finalDate
         });
 
-        // 5. CREAR REGISTRO EN KARDEX (Movements)
+        // 4. REGISTRAR MOVIMIENTO (Para el Kardex)
         const newKardex = new Movement({
             itemId: item._id,
             materialName: item.name,
@@ -103,14 +87,11 @@ router.post('/', async (req, res) => {
             destination: isSalida ? 'OBRA' : 'ALMACÉN'
         });
 
-        // 6. PERSISTENCIA FINAL
-        await item.save();
-        await newTx.save();
-        await newKardex.save();
+        await Promise.all([item.save(), newTx.save(), newKardex.save()]);
 
-        res.status(201).json({ success: true, data: newTx });
+        res.status(201).json({ success: true });
     } catch (err) {
-        console.error("Error en registro:", err);
+        console.error("Error:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
@@ -126,9 +107,7 @@ router.get('/', async (req, res) => {
         }
         const transactions = await Transaction.find(query).sort({ timestamp: 1 });
         res.json(transactions);
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default router;
