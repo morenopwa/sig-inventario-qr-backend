@@ -1,6 +1,7 @@
 import express from 'express';
 import User from '../models/User.js'; 
 import Attendance from '../models/Attendance.js';
+import verifyToken from '../middleware/verifyToken.js'; // <--- AÑADE ESTA LÍNEA
 
 const router = express.Router();
 
