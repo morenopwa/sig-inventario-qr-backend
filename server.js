@@ -11,6 +11,7 @@ import attendanceRoutes from './routes/attendance.js';
 import transactionRoutes from './routes/transactions.js'; // El que acabamos de crear
 import Transaction from './models/Transaction.js';
 import movementRoutes from './routes/movements.js';
+import workerRoutes from './routes/worker.js';
 
 dotenv.config();
 const app = express();
@@ -23,6 +24,7 @@ mongoose.connect(process.env.MONGODB_URI)
     .catch(err => console.error("❌ Error DB:", err));
 
 // RUTAS MODULARES
+app.use('/api/worker', workerRoutes);
 app.use('/api/movements', movementRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/salary', salaryRoutes);

@@ -159,4 +159,53 @@ router.patch('/:id/rate', async (req, res) => {
         res.status(500).json({ message: "Error al actualizar la tarifa" });
     }
 });
+
+
+router.get('/my-stats', verifyToken, async (req, res) => {
+    try {
+        const workerId = req.user.id; // Extraído del Token
+        const workerName = req.user.name.toUpperCase();
+
+        // 1. Obtener asistencia
+        const attendance = await Attendance.find({ workerId });
+
+        // 2. Obtener transacciones de dinero (si las guardas en Transaction)
+        // O si tienes un modelo de Salary/Payments:
+        const payments = await Transaction.find({ 
+            personName: workerName,
+            operationType: { $in: ['PAGO', 'ADELANTO'] } 
+        });
+
+        res.json({ attendance, payments });
+    } catch (err) {
+        res.status(500).json({ error: "Error al obtener tus datos" });
+    }
+});
+
+// Obtener herramientas bajo mi cargo
+router.get('/my-loans', verifyToken, async (req, res) => {
+    try {
+        const workerName = req.user.name.toUpperCase();
+        
+        // Buscamos en el modelo Item los que tengan préstamos activos con este nombre
+        const items = await Item.find({
+            "activeLoans.workerName": workerName
+        });
+
+        const myLoans = items.map(item => {
+            const loan = item.activeLoans.find(l => l.workerName === workerName);
+            return {
+                name: item.name,
+                unit: item.unit,
+                quantity: loan.quantity,
+                date: loan.date
+            };
+        });
+
+        res.json(myLoans);
+    } catch (err) {
+        res.status(500).json({ error: "Error al obtener tus préstamos" });
+    }
+});
+
 export default router;
