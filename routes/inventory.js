@@ -110,4 +110,30 @@ router.put('/return/:loanId', async (req, res) => {
     }
 });
 
+// GET: api/inventory/my-loans/:userId
+router.get('/my-loans/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        // Buscamos en History los préstamos PENDIENTES de ese trabajador específico
+        const myLoans = await History.find({ 
+            worker: userId, 
+            status: 'PENDING', 
+            action: 'LOAN' 
+        }).populate('item', 'name unit'); // Traemos el nombre y unidad del item
+
+        // Formateamos para el frontend
+        const result = myLoans.map(loan => ({
+            _id: loan._id,
+            name: loan.item?.name || 'Item no encontrado',
+            unit: loan.item?.unit || 'und',
+            quantity: 1, // En tu lógica de /loan restas de 1 en 1
+            date: loan.createdAt
+        }));
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ message: "Error al obtener tus herramientas" });
+    }
+});
+
 export default router;
