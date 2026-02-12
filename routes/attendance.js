@@ -140,4 +140,20 @@ router.patch('/update-hours/:id', async (req, res) => {
     }
 });
 
+// OBTENER HISTORIAL DE UN TRABAJADOR ESPECÍFICO
+router.get('/worker/:workerId', async (req, res) => {
+    try {
+        const { workerId } = req.params;
+        
+        // Buscamos todas las asistencias de este trabajador
+        const asistencias = await Attendance.find({ worker: workerId })
+            .sort({ date: -1 }); // De la más reciente a la más antigua
+
+        res.json(asistencias);
+    } catch (error) {
+        console.error("Error al obtener historial del trabajador:", error);
+        res.status(500).json({ message: "Error al obtener historial" });
+    }
+});
+
 export default router;
