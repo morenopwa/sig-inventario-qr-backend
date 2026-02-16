@@ -1,10 +1,10 @@
 import express from 'express';
 import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
-import { getPayrollReport } from '../controllers/attendanceController.js';
+import { getPayrollReport,manualEdit } from '../controllers/attendanceController.js';
 
 const router = express.Router();
-
+router.patch('/editar', manualEdit);
 // Reporte de nómina (Cálculos de horas)
 router.get('/payroll-report', getPayrollReport);
 
