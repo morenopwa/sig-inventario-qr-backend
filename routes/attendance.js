@@ -8,16 +8,18 @@ import {
 
 const router = express.Router();
 
-// Ruta para la tabla principal (obtener marcas de un día)
+// Obtener asistencias de un día específico (GET /api/attendance?date=...)
 router.get('/', getAttendanceByDate);
 
-// Ruta para el escáner QR
+// Registro vía QR o botón (POST /api/attendance/registrar)
 router.post('/registrar', registrarAsistencia);
 
-// Ruta para edición manual de horas (PATCH)
+// Edición manual de campos (PATCH /api/attendance/editar)
 router.patch('/editar', manualEdit);
 
-// Ruta para reportes mensuales de nómina
+// Reporte mensual consolidado (GET /api/attendance/payroll-report?month=...)
 router.get('/payroll-report', getPayrollReport);
 
+// NUEVA RUTA: Para que "Mis Pagos" obtenga el historial del trabajador
+router.get('/worker/:workerId', getAttendanceByWorker);
 export default router;
