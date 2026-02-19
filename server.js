@@ -8,10 +8,10 @@ import inventoryRoutes from './routes/inventory.js';
 import salaryRoutes from './routes/salary.js';
 import userRoutes from './routes/users.js';
 import attendanceRoutes from './routes/attendance.js';
-import transactionRoutes from './routes/transactions.js'; // El que acabamos de crear
-import Transaction from './models/Transaction.js';
+import transactionRoutes from './routes/transactions.js';
 import movementRoutes from './routes/movements.js';
 import workerRoutes from './routes/worker.js';
+import Transaction from './models/Transaction.js';
 
 dotenv.config();
 const app = express();
@@ -30,9 +30,9 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/salary', salaryRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/attendance', attendanceRoutes);
-app.use('/api/transactions', transactionRoutes); // <--- TODO LO DE TRANSACCIONES VA AQUÍ
+app.use('/api/transactions', transactionRoutes);
 
-// Ruta para datos frecuentes (Se puede quedar aquí o mover a routes también)
+// Datos frecuentes
 app.get('/api/frequent-data', async (req, res) => {
     try {
         const items = await Transaction.aggregate([
