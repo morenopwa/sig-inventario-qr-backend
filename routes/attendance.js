@@ -3,7 +3,8 @@ import {
     getPayrollReport, 
     manualEdit, 
     registrarAsistencia, 
-    getAttendanceByDate 
+    getAttendanceByDate,
+    getAttendanceByWorker
 } from '../controllers/attendanceController.js';
 
 const router = express.Router();
@@ -22,4 +23,5 @@ router.get('/payroll-report', getPayrollReport);
 
 // NUEVA RUTA: Para que "Mis Pagos" obtenga el historial del trabajador
 router.get('/worker/:workerId', getAttendanceByWorker);
+
 export default router;

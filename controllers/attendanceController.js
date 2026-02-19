@@ -74,6 +74,17 @@ export const registrarAsistencia = async (req, res) => {
     }
 };
 
+export const getAttendanceByWorker = async (req, res) => {
+    try {
+        const { workerId } = req.params;
+        // Buscamos todas las marcas de ese trabajador
+        const history = await Attendance.find({ worker: workerId });
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ message: "Error al obtener historial" });
+    }
+};
+
 // 3. EDITAR ASISTENCIA (MANUAL DESDE LA TABLA)
 export const manualEdit = async (req, res) => {
     const { attendanceId, workerId, date, field, value } = req.body;
