@@ -11,7 +11,9 @@ const UserSchema = new mongoose.Schema({
     type: { type: String, enum: ['Trabajador', 'Externo', 'Visitante'], default: 'Trabajador' },
     workStartDate: { type: Date, default: Date.now },
     accessLevel: { type: String, enum: ['SuperAdmin', 'Admin', 'Usuario'], default: 'Usuario' },
-    hourlyRate: { type: Number, default: 0 }
+    hourlyRate: { type: Number, default: 0 },
+    additionalDaily: { type: Number, default: 0 }, // Monto fijo para Almuerzo/Cena/Pasajes
+    isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
 export default mongoose.model('User', UserSchema);
