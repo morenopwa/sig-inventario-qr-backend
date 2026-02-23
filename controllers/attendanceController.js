@@ -1,11 +1,14 @@
 import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
-import { format } from 'date-fns';
+import { 
+    format, parseISO, startOfMonth, endOfMonth, 
+    eachDayOfInterval, isSunday, isSameDay 
+} from 'date-fns';
 import { es } from 'date-fns/locale';
 
 // 1. OBTENER ASISTENCIAS POR FECHA
 export const getAttendanceByDate = async (req, res) => {
-    const { date } = req.query; // Formato esperado: YYYY-MM-DD
+    const { date } = req.query; 
     try {
         const query = date ? { date } : {};
         const asistencias = await Attendance.find(query)
@@ -23,11 +26,9 @@ export const getAttendanceByDate = async (req, res) => {
 export const registrarAsistencia = async (req, res) => {
     const { workerId } = req.body;
     const ahora = new Date();
-    // Fecha local para Perú (en-CA devuelve YYYY-MM-DD)
     const hoyPeru = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
     try {
-        // Buscar usuario por ID de MongoDB, DNI o CustomID (QR)
         const user = await User.findOne({
             $or: [
                 { customId: workerId?.trim() },
@@ -43,7 +44,6 @@ export const registrarAsistencia = async (req, res) => {
         let registro = await Attendance.findOne({ worker: user._id, date: hoyPeru });
 
         if (!registro) {
-            // Primer registro del día: ENTRADA
             registro = new Attendance({
                 worker: user._id,
                 dni: user.dni,
@@ -57,7 +57,6 @@ export const registrarAsistencia = async (req, res) => {
                 type: 'IN' 
             });
         } else if (!registro.checkOut) {
-            // Segundo registro del día: SALIDA
             registro.checkOut = ahora.toISOString();
             await registro.save();
             return res.json({ 
@@ -77,7 +76,6 @@ export const registrarAsistencia = async (req, res) => {
 export const getAttendanceByWorker = async (req, res) => {
     try {
         const { workerId } = req.params;
-        // Buscamos todas las marcas de ese trabajador
         const history = await Attendance.find({ worker: workerId });
         res.json(history);
     } catch (error) {
@@ -91,16 +89,13 @@ export const manualEdit = async (req, res) => {
     
     try {
         let attendance;
-        
         if (attendanceId) {
-            // Si ya existe un registro de asistencia, lo actualizamos
             attendance = await Attendance.findByIdAndUpdate(
                 attendanceId, 
                 { [field]: value }, 
                 { new: true }
             );
         } else {
-            // Si no existe (estaba AUSENTE), creamos un registro nuevo
             const user = await User.findById(workerId);
             if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
@@ -113,7 +108,6 @@ export const manualEdit = async (req, res) => {
                 { upsert: true, new: true }
             );
         }
-
         res.json({ message: "✅ Cambios guardados", attendance });
     } catch (error) {
         console.error("Error en manualEdit:", error);
@@ -121,54 +115,89 @@ export const manualEdit = async (req, res) => {
     }
 };
 
-// 4. REPORTE DE NÓMINA (PARA EXCEL MENSUAL)
+// 4. REPORTE DE NÓMINA (INCLUYE BONOS Y DOMINGOS LEGALES)
 export const getPayrollReport = async (req, res) => {
     const { month } = req.query; // Formato YYYY-MM
     try {
-        const logs = await Attendance.find({
-            date: { $regex: new RegExp(`^${month}`) }
-        }).populate('worker', 'name lastName role hourlyRate');
+        const start = startOfMonth(parseISO(`${month}-01`));
+        const end = endOfMonth(start);
+        const daysInMonth = eachDayOfInterval({ start, end });
 
-        const reportMap = {};
+        const [users, logs] = await Promise.all([
+            User.find({ isActive: true }),
+            Attendance.find({
+                date: { $regex: new RegExp(`^${month}`) }
+            })
+        ]);
 
-        logs.forEach(log => {
-            if (!log.worker) return;
-            const uid = log.worker._id.toString();
+        const report = users.map(user => {
+            let totalNormalHours = 0;
+            let totalExtraHours = 0;
+            let totalBonos = 0;
+            let daysWorkedCount = 0;
 
-            if (!reportMap[uid]) {
-                reportMap[uid] = {
-                    _id: uid,
-                    name: log.worker.name,
-                    lastName: log.worker.lastName,
-                    role: log.worker.role,
-                    hourlyRate: Number(log.worker.hourlyRate) || 0,
-                    totalHours: 0,
-                    daysCount: 0,
-                    dailyDetails: []
+            const dailyDetails = daysInMonth.map(day => {
+                const dateStr = format(day, 'yyyy-MM-dd');
+                const log = logs.find(l => 
+                    l.worker.toString() === user._id.toString() && l.date === dateStr
+                );
+
+                let h = 0;
+                let isDom = isSunday(day);
+
+                if (isDom) {
+                    h = 8; // Domingo legal se paga como 8h normales
+                    totalBonos += (user.additionalDaily || 0);
+                } else if (log) {
+                    if (log.manualHours !== undefined && log.manualHours !== null) {
+                        h = Number(log.manualHours);
+                    } else if (log.checkIn && log.checkOut) {
+                        const diff = new Date(log.checkOut) - new Date(log.checkIn);
+                        h = diff / (1000 * 60 * 60);
+                    }
+                    if (h > 0) {
+                        totalBonos += (user.additionalDaily || 0);
+                        daysWorkedCount++;
+                    }
+                }
+
+                const nH = Math.min(h, 8);
+                const eH = Math.max(0, h - 8);
+                totalNormalHours += nH;
+                totalExtraHours += eH;
+
+                return {
+                    date: dateStr,
+                    hours: Number(h.toFixed(2)),
+                    isSunday: isDom,
+                    bonus: (isDom || (log && h > 0)) ? user.additionalDaily : 0
                 };
-            }
+            });
 
-            let hoursForThisDay = 0;
-            if (log.manualHours !== undefined && log.manualHours !== null) {
-                hoursForThisDay = Number(log.manualHours);
-            } else if (log.checkIn && log.checkOut) {
-                const diff = new Date(log.checkOut) - new Date(log.checkIn);
-                hoursForThisDay = diff / (1000 * 60 * 60);
-            }
+            const paymentNormal = totalNormalHours * user.hourlyRate;
+            const paymentExtras = totalExtraHours * (user.hourlyRate * 1.25);
 
-            if (hoursForThisDay >= 0) {
-                reportMap[uid].totalHours += hoursForThisDay;
-                if (hoursForThisDay > 0) reportMap[uid].daysCount += 1;
-                reportMap[uid].dailyDetails.push({
-                    attendanceId: log._id,
-                    date: log.date,
-                    hours: Number(hoursForThisDay.toFixed(2))
-                });
-            }
+            return {
+                workerId: user._id,
+                name: user.name,
+                lastName: user.lastName,
+                role: user.role,
+                hourlyRate: user.hourlyRate,
+                additionalDaily: user.additionalDaily || 0,
+                summary: {
+                    totalNormalHours: Number(totalNormalHours.toFixed(2)),
+                    totalExtraHours: Number(totalExtraHours.toFixed(2)),
+                    totalBonos: Number(totalBonos.toFixed(2)),
+                    daysWorked: daysWorkedCount,
+                    totalPayment: Number((paymentNormal + paymentExtras + totalBonos).toFixed(2))
+                },
+                dailyDetails
+            };
         });
 
-        res.json(Object.values(reportMap));
+        res.json(report);
     } catch (error) {
+        console.error("Error en getPayrollReport:", error);
         res.status(500).json({ error: "Error al generar reporte de nómina" });
     }
 };
