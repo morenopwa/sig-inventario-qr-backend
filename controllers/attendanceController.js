@@ -22,13 +22,15 @@ export const getAttendanceByDate = async (req, res) => {
     }
 };
 
-// 2. REGISTRAR ASISTENCIA (QR / BOTÓN)
+// 2. REGISTRAR ASISTENCIA (QR / BOTÓN) - LÓGICA DE MARCADO INTELIGENTE
 export const registrarAsistencia = async (req, res) => {
     const { workerId } = req.body;
     const ahora = new Date();
+    // Ajuste de zona horaria para Perú (en-CA devuelve YYYY-MM-DD)
     const hoyPeru = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
     try {
+        // Buscamos al usuario por CustomID (QR), DNI o ID de MongoDB
         const user = await User.findOne({
             $or: [
                 { customId: workerId?.trim() },
@@ -43,6 +45,7 @@ export const registrarAsistencia = async (req, res) => {
 
         let registro = await Attendance.findOne({ worker: user._id, date: hoyPeru });
 
+        // ESCENARIO 1: No ha marcado nada hoy -> Registrar ENTRADA
         if (!registro) {
             registro = new Attendance({
                 worker: user._id,
@@ -56,7 +59,10 @@ export const registrarAsistencia = async (req, res) => {
                 message: `Entrada registrada: ${user.name} ${user.lastName}`, 
                 type: 'IN' 
             });
-        } else if (!registro.checkOut) {
+        } 
+
+        // ESCENARIO 2: Ya tiene entrada pero falta salida -> Registrar SALIDA
+        if (registro.checkIn && !registro.checkOut) {
             registro.checkOut = ahora.toISOString();
             await registro.save();
             return res.json({ 
@@ -66,7 +72,15 @@ export const registrarAsistencia = async (req, res) => {
             });
         }
 
-        res.status(400).json({ message: "El trabajador ya tiene registradas entrada y salida hoy." });
+        // ESCENARIO 3: Ya tiene AMBOS marcados -> Error / Modo Consulta
+        // Enviamos un 400 para que el Frontend sepa que debe activar el modo "Consulta"
+        if (registro.checkIn && registro.checkOut) {
+            return res.status(400).json({ 
+                message: "El trabajador ya tiene registrada entrada y salida hoy.",
+                status: 'FULL' 
+            });
+        }
+
     } catch (error) {
         console.error("Error en registrarAsistencia:", error);
         res.status(500).json({ message: "Error interno del servidor" });
@@ -145,8 +159,9 @@ export const getPayrollReport = async (req, res) => {
                 let h = 0;
                 let isDom = isSunday(day);
 
+                // Lógica de Domingos: Se pagan siempre 8h según ley
                 if (isDom) {
-                    h = 8; // Domingo legal se paga como 8h normales
+                    h = 8; 
                     totalBonos += (user.additionalDaily || 0);
                 } else if (log) {
                     if (log.manualHours !== undefined && log.manualHours !== null) {
