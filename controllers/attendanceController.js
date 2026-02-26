@@ -22,15 +22,19 @@ export const getAttendanceByDate = async (req, res) => {
     }
 };
 
-// 2. REGISTRAR ASISTENCIA (QR / BOTÓN) - LÓGICA DE MARCADO INTELIGENTE
+// ... (tus otros imports se mantienen igual)
+
+// 2. REGISTRAR ASISTENCIA (QR / BOTÓN) - LÓGICA DE MARCADO INTELIGENTE ACTUALIZADA
 export const registrarAsistencia = async (req, res) => {
-    const { workerId } = req.body;
+    // Extraemos workerId y la fecha opcional enviada desde el frontend
+    const { workerId, date } = req.body; 
+    
     const ahora = new Date();
-    // Ajuste de zona horaria para Perú (en-CA devuelve YYYY-MM-DD)
-    const hoyPeru = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    // Si el frontend envía una fecha, usamos esa. Si no, usamos el día actual de Lima.
+    const fechaParaRegistro = date || ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
     try {
-        // Buscamos al usuario por CustomID (QR), DNI o ID de MongoDB
+        // 1. Buscar al usuario
         const user = await User.findOne({
             $or: [
                 { customId: workerId?.trim() },
@@ -43,40 +47,43 @@ export const registrarAsistencia = async (req, res) => {
             return res.status(404).json({ message: "Trabajador no encontrado" });
         }
 
-        let registro = await Attendance.findOne({ worker: user._id, date: hoyPeru });
+        // 2. Buscar si ya existe un registro para ESE trabajador en ESA fecha específica
+        let registro = await Attendance.findOne({ worker: user._id, date: fechaParaRegistro });
 
-        // ESCENARIO 1: No ha marcado nada hoy -> Registrar ENTRADA
+        // ESCENARIO A: Registrar ENTRADA
         if (!registro) {
+            // Si estamos registrando para un día que NO es hoy (atrasado), 
+            // la hora de checkIn debería ser la de hoy o una por defecto. 
+            // Usaremos la hora actual (ahora) pero asociada a la fecha elegida.
             registro = new Attendance({
                 worker: user._id,
                 dni: user.dni,
-                date: hoyPeru,
-                checkIn: ahora.toISOString()
+                date: fechaParaRegistro,
+                checkIn: ahora.toISOString() 
             });
             await registro.save();
             return res.json({ 
                 success: true, 
-                message: `Entrada registrada: ${user.name} ${user.lastName}`, 
+                message: `Entrada registrada para el día ${fechaParaRegistro}: ${user.name}`, 
                 type: 'IN' 
             });
         } 
 
-        // ESCENARIO 2: Ya tiene entrada pero falta salida -> Registrar SALIDA
+        // ESCENARIO B: Registrar SALIDA
         if (registro.checkIn && !registro.checkOut) {
             registro.checkOut = ahora.toISOString();
             await registro.save();
             return res.json({ 
                 success: true, 
-                message: `Salida registrada: ${user.name} ${user.lastName}`, 
+                message: `Salida registrada para el día ${fechaParaRegistro}: ${user.name}`, 
                 type: 'OUT' 
             });
         }
 
-        // ESCENARIO 3: Ya tiene AMBOS marcados -> Error / Modo Consulta
-        // Enviamos un 400 para que el Frontend sepa que debe activar el modo "Consulta"
+        // ESCENARIO C: Ya tiene ambos (Modo Consulta)
         if (registro.checkIn && registro.checkOut) {
             return res.status(400).json({ 
-                message: "El trabajador ya tiene registrada entrada y salida hoy.",
+                message: `El trabajador ya completó su jornada el día ${fechaParaRegistro}.`,
                 status: 'FULL' 
             });
         }
@@ -86,6 +93,7 @@ export const registrarAsistencia = async (req, res) => {
         res.status(500).json({ message: "Error interno del servidor" });
     }
 };
+
 
 export const getAttendanceByWorker = async (req, res) => {
     try {
