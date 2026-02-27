@@ -2,9 +2,8 @@ import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
 import { 
     format, parseISO, startOfMonth, endOfMonth, 
-    eachDayOfInterval, isSunday, isSameDay 
+    eachDayOfInterval, isSunday
 } from 'date-fns';
-import { es } from 'date-fns/locale';
 
 // 1. OBTENER ASISTENCIAS POR FECHA
 export const getAttendanceByDate = async (req, res) => {
@@ -22,19 +21,16 @@ export const getAttendanceByDate = async (req, res) => {
     }
 };
 
-// ... (tus otros imports se mantienen igual)
-
-// 2. REGISTRAR ASISTENCIA (QR / BOTÓN) - LÓGICA DE MARCADO INTELIGENTE ACTUALIZADA
+// 2. REGISTRAR ASISTENCIA (QR / BOTÓN) - LÓGICA DE MARCADO INTELIGENTE
 export const registrarAsistencia = async (req, res) => {
-    // Extraemos workerId y la fecha opcional enviada desde el frontend
     const { workerId, date } = req.body; 
-    
     const ahora = new Date();
-    // Si el frontend envía una fecha, usamos esa. Si no, usamos el día actual de Lima.
+    
+    // Si no viene fecha del frontend, usamos la fecha actual en formato Peruano para la base de datos
     const fechaParaRegistro = date || ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
     try {
-        // 1. Buscar al usuario
+        // 1. Buscamos al usuario por CustomID, DNI o ID de Mongo
         const user = await User.findOne({
             $or: [
                 { customId: workerId?.trim() },
@@ -47,40 +43,39 @@ export const registrarAsistencia = async (req, res) => {
             return res.status(404).json({ message: "Trabajador no encontrado" });
         }
 
-        // 2. Buscar si ya existe un registro para ESE trabajador en ESA fecha específica
+        // 2. Buscamos si ya existe un registro para ESE trabajador en ESA fecha
+        // Usamos user._id (el ID real de la DB) para evitar conflictos con el workerId del QR
         let registro = await Attendance.findOne({ worker: user._id, date: fechaParaRegistro });
 
-        // ESCENARIO A: Registrar ENTRADA
+        // ESCENARIO A: No ha marcado nada hoy -> Registrar ENTRADA
         if (!registro) {
-            // Si estamos registrando para un día que NO es hoy (atrasado), 
-            // la hora de checkIn debería ser la de hoy o una por defecto. 
-            // Usaremos la hora actual (ahora) pero asociada a la fecha elegida.
             registro = new Attendance({
                 worker: user._id,
                 dni: user.dni,
                 date: fechaParaRegistro,
-                checkIn: ahora.toISOString() 
+                checkIn: ahora.toISOString()
             });
             await registro.save();
             return res.json({ 
                 success: true, 
-                message: `Entrada registrada para el día ${fechaParaRegistro}: ${user.name}`, 
+                message: `Entrada registrada: ${user.name} ${user.lastName}`, 
                 type: 'IN' 
             });
         } 
 
-        // ESCENARIO B: Registrar SALIDA
+        // ESCENARIO B: Ya tiene entrada pero falta salida -> Registrar SALIDA
+        // Verificamos explícitamente que checkIn exista y checkOut sea nulo/vacío
         if (registro.checkIn && !registro.checkOut) {
             registro.checkOut = ahora.toISOString();
             await registro.save();
             return res.json({ 
                 success: true, 
-                message: `Salida registrada para el día ${fechaParaRegistro}: ${user.name}`, 
+                message: `Salida registrada: ${user.name} ${user.lastName}`, 
                 type: 'OUT' 
             });
         }
 
-        // ESCENARIO C: Ya tiene ambos (Modo Consulta)
+        // ESCENARIO C: Ya tiene AMBOS marcados -> Modo Consulta / Error
         if (registro.checkIn && registro.checkOut) {
             return res.status(400).json({ 
                 message: `El trabajador ya completó su jornada el día ${fechaParaRegistro}.`,
@@ -94,7 +89,7 @@ export const registrarAsistencia = async (req, res) => {
     }
 };
 
-
+// 3. OBTENER HISTORIAL POR TRABAJADOR
 export const getAttendanceByWorker = async (req, res) => {
     try {
         const { workerId } = req.params;
@@ -105,7 +100,7 @@ export const getAttendanceByWorker = async (req, res) => {
     }
 };
 
-// 3. EDITAR ASISTENCIA (MANUAL DESDE LA TABLA)
+// 4. EDITAR ASISTENCIA (MANUAL DESDE LA TABLA)
 export const manualEdit = async (req, res) => {
     const { attendanceId, workerId, date, field, value } = req.body;
     
@@ -137,7 +132,7 @@ export const manualEdit = async (req, res) => {
     }
 };
 
-// 4. REPORTE DE NÓMINA (INCLUYE BONOS Y DOMINGOS LEGALES)
+// 5. REPORTE DE NÓMINA (INCLUYE BONOS Y DOMINGOS LEGALES)
 export const getPayrollReport = async (req, res) => {
     const { month } = req.query; // Formato YYYY-MM
     try {
