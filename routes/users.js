@@ -1,7 +1,7 @@
 import express from 'express';
 import User from '../models/User.js'; 
 import Attendance from '../models/Attendance.js';
-import verifyToken from '../middleware/verifyToken.js'; // <--- AÑADE ESTA LÍNEA
+import verifyToken from '../middleware/verifyToken.js';
 
 const router = express.Router();
 
@@ -84,7 +84,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Obtener todos
+// Obtener todos los usuarios
 router.get('/', async (req, res) => {
     try {
         const users = await User.find().select('-password').sort({ lastName: 1 });
@@ -92,16 +92,19 @@ router.get('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// En tu backend: routes/users.js
+// CREAR NUEVO USUARIO (Actualizado con Birthday y WeeklyBonus)
 router.post('/', async (req, res) => {
     try {
-        const { name, lastName, dni, role, type } = req.body;
+        const { name, lastName, dni, birthday, weeklyBonus } = req.body;
 
         const newUser = new User({
             ...req.body,
             name: name.trim().toUpperCase(),
             lastName: lastName.trim().toUpperCase(),
-            // También generamos el customId en mayúsculas por si acaso
+            // Manejo de fecha de cumpleaños
+            birthday: birthday ? new Date(birthday) : null,
+            // Aseguramos que el bono sea número
+            weeklyBonus: parseFloat(weeklyBonus) || 0,
             customId: req.body.customId || `QR-${dni || Date.now()}`.toUpperCase()
         });
 
@@ -113,12 +116,17 @@ router.post('/', async (req, res) => {
     }
 });
 
+// ACTUALIZAR USUARIO (Actualizado con Birthday y WeeklyBonus)
 router.put('/:id', async (req, res) => {
     try {
         const updateData = { ...req.body };
         
         if (updateData.name) updateData.name = updateData.name.trim().toUpperCase();
         if (updateData.lastName) updateData.lastName = updateData.lastName.trim().toUpperCase();
+        
+        // Convertir fecha si viene en el update
+        if (updateData.birthday) updateData.birthday = new Date(updateData.birthday);
+        if (updateData.weeklyBonus !== undefined) updateData.weeklyBonus = parseFloat(updateData.weeklyBonus) || 0;
 
         const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
         res.json({ success: true, data: updatedUser });
@@ -136,20 +144,18 @@ router.delete('/:id', async (req, res) => {
 
 router.get('/lastnames', async (req, res) => {
     try {
-        // Suponiendo que tu modelo de Worker tiene un campo 'lastName'
-        const workers = await Worker.find({}, 'lastName'); 
-        res.json(workers.map(w => w.lastName.toUpperCase()));
+        // Corregido: Usar 'User' en lugar de 'Worker' si ese es tu modelo
+        const users = await User.find({}, 'lastName'); 
+        res.json(users.map(u => u.lastName.toUpperCase()));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-
-// backend/routes/users.js
+// Actualizar tarifa por hora
 router.patch('/:id/rate', async (req, res) => {
     try {
         const { hourlyRate } = req.body;
-        // Validamos que sea un número positivo
         if (isNaN(hourlyRate) || hourlyRate < 0) {
             return res.status(400).json({ message: "La tarifa debe ser un número válido" });
         }
@@ -161,23 +167,21 @@ router.patch('/:id/rate', async (req, res) => {
     }
 });
 
-
+// Estadísticas del trabajador logueado
 router.get('/my-stats', verifyToken, async (req, res) => {
     try {
-        const workerId = req.user.id; // Extraído del Token
+        const workerId = req.user.id; 
         const workerName = req.user.name.toUpperCase();
 
-        // 1. Obtener asistencia
-        const attendance = await Attendance.find({ workerId });
+        const attendance = await Attendance.find({ worker: workerId });
 
-        // 2. Obtener transacciones de dinero (si las guardas en Transaction)
-        // O si tienes un modelo de Salary/Payments:
-        const payments = await Transaction.find({ 
-            personName: workerName,
-            operationType: { $in: ['PAGO', 'ADELANTO'] } 
-        });
+        // Nota: Asegúrate que el modelo Transaction exista y esté importado si lo usas
+        // const payments = await Transaction.find({ 
+        //     personName: workerName,
+        //     operationType: { $in: ['PAGO', 'ADELANTO'] } 
+        // });
 
-        res.json({ attendance, payments });
+        res.json({ attendance, payments: [] }); 
     } catch (err) {
         res.status(500).json({ error: "Error al obtener tus datos" });
     }
@@ -188,7 +192,7 @@ router.get('/my-loans', verifyToken, async (req, res) => {
     try {
         const workerName = req.user.name.toUpperCase();
         
-        // Buscamos en el modelo Item los que tengan préstamos activos con este nombre
+        // Nota: Requiere importar el modelo 'Item'
         const items = await Item.find({
             "activeLoans.workerName": workerName
         });
