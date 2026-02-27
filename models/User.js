@@ -13,7 +13,9 @@ const UserSchema = new mongoose.Schema({
     accessLevel: { type: String, enum: ['SuperAdmin', 'Admin', 'Usuario'], default: 'Usuario' },
     hourlyRate: { type: Number, default: 0 },
     additionalDaily: { type: Number, default: 0 }, // Monto fijo para Almuerzo/Cena/Pasajes
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    weeklyBonus: { type: Number, default: 0 }, // El bono semanal,
+    birthday: { type: Date },
 }, { timestamps: true });
 
 export default mongoose.model('User', UserSchema);
