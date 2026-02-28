@@ -102,7 +102,7 @@ router.post('/', async (req, res) => {
             name: name.trim().toUpperCase(),
             lastName: lastName.trim().toUpperCase(),
             // Manejo de fecha de cumpleaños
-            birthday: birthday ? new Date(birthday) : null,
+            birthday: birthday ? `${birthday}T12:00:00Z` : null,
             // Aseguramos que el bono sea número
             weeklyBonus: parseFloat(weeklyBonus) || 0,
             customId: req.body.customId || `QR-${dni || Date.now()}`.toUpperCase()
@@ -125,7 +125,7 @@ router.put('/:id', async (req, res) => {
         if (updateData.lastName) updateData.lastName = updateData.lastName.trim().toUpperCase();
         
         // Convertir fecha si viene en el update
-        if (updateData.birthday) updateData.birthday = new Date(updateData.birthday);
+        if (updateData.birthday) updateData.birthday = `${updateData.birthday}T12:00:00Z`;
         if (updateData.weeklyBonus !== undefined) updateData.weeklyBonus = parseFloat(updateData.weeklyBonus) || 0;
 
         const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
@@ -210,6 +210,29 @@ router.get('/my-loans', verifyToken, async (req, res) => {
         res.json(myLoans);
     } catch (err) {
         res.status(500).json({ error: "Error al obtener tus préstamos" });
+    }
+});
+
+// --- NUEVA RUTA: CAMBIAR CONTRASEÑA ---
+router.patch('/:id/password', async (req, res) => {
+    try {
+        const { newPassword } = req.body;
+        if (!newPassword || newPassword.length < 4) {
+            return res.status(400).json({ message: "La contraseña debe tener al menos 4 caracteres" });
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.params.id, 
+            { password: newPassword.trim() }, 
+            { new: true }
+        );
+
+        if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
+
+        res.json({ success: true, message: "Contraseña actualizada correctamente" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error al actualizar la contraseña" });
     }
 });
 
