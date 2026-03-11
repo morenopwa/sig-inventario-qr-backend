@@ -49,9 +49,12 @@ router.post('/', async (req, res) => {
             });
         } else {
             // Es una DEVOLUCIÓN (ENTRADA de trabajador)
-            item.stock += numericQty;
-            const loanIndex = item.activeLoans.findIndex(l => l.workerName === normalizedPerson);
-            if (loanIndex !== -1) {
+                item.stock += numericQty;
+                const loanIndex = item.activeLoans.findIndex(l => 
+                        l.workerName.trim().toUpperCase() === normalizedPerson
+                );       
+                    
+                if (loanIndex !== -1) {
                 item.activeLoans[loanIndex].quantity -= numericQty;
                 if (item.activeLoans[loanIndex].quantity <= 0) {
                     item.activeLoans.splice(loanIndex, 1);
